@@ -106,10 +106,13 @@ export interface ComboOption {
   group?: string;
   keywords?: string;
   disabled?: boolean;
+  /** Stable identifier, so a caller can match options against its own data. */
+  id?: string;
 }
 
 export function Combobox({
   value, options, onChange, placeholder = 'Search…', allowClear = true, renderValue, compact,
+  search, renderHeader,
 }: {
   value: string;
   options: ComboOption[];
@@ -118,6 +121,10 @@ export function Combobox({
   allowClear?: boolean;
   renderValue?: (value: string) => ReactNode;
   compact?: boolean;
+  /** Replaces the default substring match, for callers with a richer query language. */
+  search?: (query: string, options: ComboOption[]) => ComboOption[];
+  /** Rendered under the input — used to show which filters a query parsed into. */
+  renderHeader?: (query: string, matches: number) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -138,6 +145,7 @@ export function Combobox({
   }, [open]);
 
   const filtered = useMemo(() => {
+    if (search) return search(query, options).slice(0, 300);
     const q = query.trim().toLowerCase();
     if (!q) return options.slice(0, 300);
     const scored = options
@@ -149,7 +157,7 @@ export function Combobox({
       })
       .filter(Boolean) as { o: ComboOption; score: number }[];
     return scored.sort((a, b) => a.score - b.score).slice(0, 300).map((s) => s.o);
-  }, [options, query]);
+  }, [options, query, search]);
 
   useEffect(() => setCursor(0), [query, open]);
   useEffect(() => {
@@ -203,6 +211,7 @@ export function Combobox({
               else if (e.key === 'Escape') { setOpen(false); }
             }}
           />
+          {renderHeader?.(query, filtered.length)}
           <div className="combo-list" ref={listRef}>
             {allowClear && (
               <button type="button" className="combo-opt combo-clear" onClick={() => commit('')}>

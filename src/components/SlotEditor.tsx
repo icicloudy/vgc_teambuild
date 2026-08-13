@@ -5,7 +5,7 @@ import {
   NATURES, TYPES, abilitiesFor, allItems, getItem, getMove, getSpecies, megasFor,
   natureLabel, natureModifier, toID,
 } from '../data/dex';
-import { CONFIDENCE_LABEL, legalMegas, rosterConfidence, speciesCatalogue } from '../data/roster';
+import { CONFIDENCE_LABEL, legalMegas, rosterConfidence } from '../data/roster';
 import { displayName } from '../engine/calc';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, computeStats, resolveForm, spTotal } from '../engine/stats';
 import { useActiveTeam, useFormat, useStore } from '../store';
@@ -13,6 +13,7 @@ import { Combobox, Field, Pill, Section, Sprite, StatBar, TypeBadge } from './co
 import type { ComboOption } from './common';
 import { OptimizerPanel } from './Optimizer';
 import { SlotMatchupPreview } from './SlotMatchupPreview';
+import { SpeciesPicker } from './SpeciesPicker';
 import { useLearnset } from './useLearnset';
 import { plural } from '../text';
 
@@ -46,30 +47,6 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
   const learnset = useLearnset(member?.species ?? '');
 
   const allMegas = useMemo(() => megasFor(member?.species ?? ''), [member?.species]);
-
-  const speciesOptions = useMemo<ComboOption[]>(() => {
-    const catalogue = speciesCatalogue(format, rosterOverride);
-    const rank: Record<string, number> = { confirmed: 0, likely: 1, unverified: 2, excluded: 3 };
-    return catalogue
-      .sort((a, b) =>
-        rank[a.confidence] - rank[b.confidence] ||
-        b.bst - a.bst ||
-        a.species.name.localeCompare(b.species.name))
-      .map((e) => ({
-        value: e.species.name,
-        label: e.species.name,
-        keywords: `${e.species.types.join(' ')} ${e.species.num}`,
-        sublabel: (
-          <>
-            {e.species.types.map((t: string) => <TypeBadge key={t} type={t} small />)}
-            <span className="muted"> BST {e.bst}</span>
-            {e.megaCount > 0 && <span className="mega-tag">{e.megaCount === 1 ? 'Mega' : `${e.megaCount} Megas`}</span>}
-          </>
-        ),
-        right: <span className={`conf conf-${e.confidence}`}>{CONFIDENCE_LABEL[e.confidence]}</span>,
-        disabled: e.confidence === 'excluded',
-      }));
-  }, [format, rosterOverride]);
 
   const itemOptions: ComboOption[] = useMemo(() => {
     const stones = new Set(allMegas.map((m) => m.stoneId));
@@ -150,13 +127,12 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
         >
           <div className="grid-2">
             <Field label="Pokémon">
-              <Combobox
+              <SpeciesPicker
                 value={member.species}
-                options={speciesOptions}
-                placeholder="Search Pokémon…"
-                allowClear={false}
-                onChange={(species) => {
-                  const s = getSpecies(species);
+                format={format}
+                override={rosterOverride}
+                onChange={(name) => {
+                  const s = getSpecies(name);
                   if (!s) return;
                   update(index, {
                     species: s.name,
@@ -167,12 +143,6 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
                     moves: ['', '', '', ''],
                   });
                 }}
-                renderValue={(v) => (
-                  <span className="combo-selected">
-                    <Sprite species={v} size={22} />
-                    {v || 'Select a Pokémon'}
-                  </span>
-                )}
               />
               {confidence !== 'confirmed' && (
                 <span className={`conf conf-${confidence} conf-inline`}>

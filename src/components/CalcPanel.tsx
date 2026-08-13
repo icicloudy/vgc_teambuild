@@ -9,6 +9,14 @@ import { useActiveTeam, useEnabledThreats, useFormat, useStore } from '../store'
 import type { CalcSlotRef } from '../store';
 import { Section, Sprite, Toggle, TypeBadge } from './common';
 import { damageTone } from './format';
+import { CustomSetEditor } from './CustomSetEditor';
+import { emptySet } from '../engine/showdown';
+import type { RosterOverride } from '../data/roster';
+
+/** Starting point for a free-form calculator Pokémon. */
+function defaultCustomSet(level: number): PokemonSet {
+  return { ...emptySet('Incineroar'), level };
+}
 
 const BOOST_STATS = ['atk', 'def', 'spa', 'spd', 'spe'] as const;
 const STATUSES: { value: CombatantState['status']; label: string }[] = [
@@ -35,19 +43,27 @@ export function CalcPanel() {
   const calcAttacker = useStore((s) => s.calcAttacker);
   const calcDefender = useStore((s) => s.calcDefender);
   const setCalcRef = useStore((s) => s.setCalcRef);
+  const calcCustom = useStore((s) => s.calcCustom);
+  const setCalcCustom = useStore((s) => s.setCalcCustom);
+  const rosterOverride = useStore((s) => s.rosterOverride);
 
-  const resolve = (ref: CalcSlotRef | null, fallback: 'team' | 'threat'): PokemonSet | null => {
+  const resolve = (
+    ref: CalcSlotRef | null,
+    side: 'attacker' | 'defender',
+  ): PokemonSet | null => {
+    const fallback = side === 'attacker' ? 'team' : 'threat';
     const r = ref ?? (fallback === 'team'
       ? (team.members[0] ? { kind: 'team' as const, id: team.members[0].id } : null)
       : (threats[0] ? { kind: 'threat' as const, id: threats[0].id } : null));
     if (!r) return null;
+    if (r.kind === 'custom') return calcCustom[side] ?? defaultCustomSet(format.level);
     if (r.kind === 'team') return team.members.find((m) => m.id === r.id) ?? team.members[0] ?? null;
     const t = threats.find((x) => x.id === r.id) ?? threats[0];
     return t ? threatToSet(t, format.level) : null;
   };
 
-  const attacker = resolve(calcAttacker, 'team');
-  const defender = resolve(calcDefender, 'threat');
+  const attacker = resolve(calcAttacker, 'attacker');
+  const defender = resolve(calcDefender, 'defender');
 
   const forward = useMemo(
     () => (attacker && defender
@@ -80,6 +96,8 @@ export function CalcPanel() {
     );
   }
 
+  const isCustom = (ref: CalcSlotRef | null) => ref?.kind === 'custom';
+
   return (
     <div className="calc-grid">
       <Combatant
@@ -89,6 +107,9 @@ export function CalcPanel() {
         onState={setAttackerState}
         selected={calcAttacker}
         onSelect={(r) => setCalcRef('attacker', r)}
+        custom={isCustom(calcAttacker)}
+        onCustomChange={(patch) => setCalcCustom('attacker', patch)}
+        override={rosterOverride}
         speed={aSpeed}
         faster={field.isTrickRoom ? aSpeed < dSpeed : aSpeed > dSpeed}
       />
@@ -151,6 +172,9 @@ export function CalcPanel() {
         onState={setDefenderState}
         selected={calcDefender}
         onSelect={(r) => setCalcRef('defender', r)}
+        custom={isCustom(calcDefender)}
+        onCustomChange={(patch) => setCalcCustom('defender', patch)}
+        override={rosterOverride}
         speed={dSpeed}
         faster={field.isTrickRoom ? dSpeed < aSpeed : dSpeed > aSpeed}
       />
@@ -193,6 +217,7 @@ function SideToggles({
 
 function Combatant({
   title, set, state, onState, selected, onSelect, speed, faster,
+  custom, onCustomChange, override,
 }: {
   title: string;
   set: PokemonSet;
@@ -202,6 +227,9 @@ function Combatant({
   onSelect: (ref: CalcSlotRef) => void;
   speed: number;
   faster: boolean;
+  custom: boolean;
+  onCustomChange: (patch: Partial<PokemonSet>) => void;
+  override: RosterOverride | null;
 }) {
   const format = useFormat();
   const team = useActiveTeam();
@@ -243,7 +271,19 @@ function Combatant({
         <optgroup label="Metagame threats">
           {threats.map((t) => <option key={t.id} value={`threat:${t.id}`}>{t.name}</option>)}
         </optgroup>
+        <optgroup label="Anything else">
+          <option value="custom:custom">Any Pokémon…</option>
+        </optgroup>
       </select>
+
+      {custom && (
+        <CustomSetEditor
+          set={set}
+          onChange={onCustomChange}
+          format={format}
+          override={override}
+        />
+      )}
 
       <div className="boost-row">
         {BOOST_STATS.map((stat) => (

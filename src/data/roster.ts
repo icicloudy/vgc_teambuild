@@ -140,6 +140,33 @@ export interface SpeciesEntry {
   confidence: RosterConfidence;
   megaCount: number;
   bst: number;
+  /** Higher is more likely to matter in VGC; drives the default ordering. */
+  relevance: number;
+}
+
+const CONFIDENCE_WEIGHT: Record<RosterConfidence, number> = {
+  confirmed: 300, likely: 150, unverified: 0, excluded: -1000,
+};
+
+const DOUBLES_TIER_WEIGHT: Record<string, number> = {
+  DOU: 220, DUber: 200, DUU: 120,
+};
+
+/**
+ * How likely a species is to be worth considering for a VGC team.
+ *
+ * The dominant term is whether it is fully evolved: a Pokémon that still evolves
+ * is almost never a real option, and a high base-stat total (Ferrothorn's
+ * pre-evolutions, say) should not float it above things people actually play.
+ */
+export function relevanceScore(species: Species, confidence: RosterConfidence): number {
+  let score = CONFIDENCE_WEIGHT[confidence];
+  if (species.nfe) score -= 600;
+  score += DOUBLES_TIER_WEIGHT[species.doublesTier ?? ''] ?? 0;
+  if (megasFor(species.name).length) score += 90;
+  const total = (Object.values(species.baseStats) as number[]).reduce((a, b) => a + b, 0);
+  score += total / 6;
+  return score;
 }
 
 export function speciesCatalogue(
@@ -155,9 +182,12 @@ export function speciesCatalogue(
       confidence,
       megaCount: legalMegas(s.name, format).length,
       bst: (Object.values(s.baseStats) as number[]).reduce((a, b) => a + b, 0),
+      relevance: relevanceScore(s, confidence),
     });
   }
-  return out;
+  // Most relevant first, so a Pokémon that still evolves never outranks one people
+  // actually bring.
+  return out.sort((a, b) => b.relevance - a.relevance || a.species.name.localeCompare(b.species.name));
 }
 
 export function legalMegas(speciesName: string, format: FormatRules) {

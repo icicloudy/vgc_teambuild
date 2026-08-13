@@ -772,3 +772,40 @@ select:focus, input:focus, textarea:focus { outline: none; border-color: var(--a
 .survival-verdict.band-3 { background: #8c3f36; color: #ffdad5; }
 .survival-verdict.band-4 { background: #4a2b28; color: #ffc9c2; }
 .survival-hint { margin: 0; line-height: 1.4; }
+
+/* ---------------- species search filters ---------------- */
+
+.combo-filters {
+  display: flex; flex-wrap: wrap; gap: 5px; align-items: center;
+  padding: 7px 9px; border-bottom: 1px solid var(--line); background: var(--bg-2);
+}
+.filter-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--bg-3); border: 1px solid var(--line-2);
+  border-radius: 20px; padding: 1px 9px 1px 6px; font-size: 11px;
+}
+.filter-chip em {
+  font-style: normal; font-size: 9px; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--bg-1); background: var(--text-3); border-radius: 3px; padding: 0 4px;
+}
+.chip-ability em { background: var(--accent); }
+.chip-move em { background: var(--ok); }
+.chip-type em { background: var(--mega); }
+.nfe-tag { font-size: 10px; color: var(--text-3); font-style: italic; }
+
+/* ---------------- calculator: any Pokémon ---------------- */
+
+.custom-set {
+  display: flex; flex-direction: column; gap: 8px;
+  margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
+}
+.custom-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.custom-sp-head {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3);
+}
+.custom-sp-head em { font-style: normal; text-transform: none; letter-spacing: 0; margin-left: 6px; }
+.custom-sp-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 4px; }
+.custom-sp-cell { display: flex; flex-direction: column; gap: 2px; }
+.custom-sp-cell span { font-size: 9px; color: var(--text-3); text-align: center; }
+.custom-sp-cell input { padding: 3px 2px; font-size: 12px; text-align: center; }
+.custom-moves { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }

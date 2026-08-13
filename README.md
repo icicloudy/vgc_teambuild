@@ -48,7 +48,10 @@ inside their panels rather than stretching the page.
 
 ## What it does
 
-**Build** — six slots, searchable species/item/ability/move pickers with learnset filtering,
+**Build** — six slots with a species search that takes what a Pokémon *does*, not just its
+name: type `intimidate`, `fake out` or `steel`, and stack them (`fake out intimidate`) to
+intersect. Unevolved Pokémon sort last and are labelled, so they never crowd out real options.
+Item/ability/move pickers with learnset filtering,
 Stat Point sliders with live stat totals and a marker where the 66-point budget runs out, and Mega Evolution handled the way the game handles it:
 hold the stone, and the forme, typing, ability and stats all switch over everywhere in the
 app. Showdown paste import/export both ways, including folding `Mega Charizard Y` back into
@@ -73,6 +76,9 @@ and the relevant defence: 33 x 33 real calculations, so the staircase you see is
 threshold, not an interpolation. Hover any square for its numbers, click to apply it. Below the
 map it lists the cheapest spreads that survive, and the other two modes solve the minimum
 investment that secures a KO and the Speed points (and nature) to outrun a benchmark.
+Defence runs along the bottom, HP up the side. With all 66 points free every square is
+reachable — the dimmed region only appears once points are committed to other stats, and the
+dashed line marks where the remaining budget runs out.
 
 **Speed tiers** — your team laid against the metagame with boosts, Tailwind, weather
 abilities, paralysis, Choice Scarf and Trick Room inversion, plus what share of the field
@@ -89,6 +95,9 @@ special attacker.
 
 **Metagame** — the threat list every calculation runs against, fully editable. Paste the set
 that just beat you and it becomes part of the analysis.
+
+**Calculator** — either side can be a team member, a listed threat, or *any* Pokémon in the
+dex, with its own ability, item, nature, Stat Points and moves.
 
 ---
 

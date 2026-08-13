@@ -56,8 +56,9 @@ export function SurvivalMap({
   const curHP = Math.min(AXIS_MAX, current.hp ?? 0);
   const curDef = Math.min(AXIS_MAX, current[grid.defStat as StatID] ?? 0);
 
-  const x = (hp: number) => PAD.left + hp * CELL;
-  const y = (def: number) => PAD.top + (AXIS_MAX - def) * CELL;
+  // Defence on X, HP on Y; HP grows upward.
+  const x = (def: number) => PAD.left + def * CELL;
+  const y = (hp: number) => PAD.top + (AXIS_MAX - hp) * CELL;
 
   // Draw a line on each edge where the hit count changes: those edges are the
   // thresholds, which is the thing worth reading off this chart.
@@ -66,11 +67,13 @@ export function SurvivalMap({
     for (let hp = 0; hp <= AXIS_MAX; hp++) {
       for (let def = 0; def <= AXIS_MAX; def++) {
         const here = grid.cells[hp][def].hitsToKO;
+        // Boundary above this cell (one more HP point).
         if (hp < AXIS_MAX && grid.cells[hp + 1][def].hitsToKO !== here) {
-          segs.push({ x1: x(hp + 1), y1: y(def), x2: x(hp + 1), y2: y(def) + CELL });
+          segs.push({ x1: x(def), y1: y(hp + 1) + CELL, x2: x(def) + CELL, y2: y(hp + 1) + CELL });
         }
+        // Boundary to the right of this cell (one more defence point).
         if (def < AXIS_MAX && grid.cells[hp][def + 1].hitsToKO !== here) {
-          segs.push({ x1: x(hp), y1: y(def + 1) + CELL, x2: x(hp) + CELL, y2: y(def + 1) + CELL });
+          segs.push({ x1: x(def + 1), y1: y(hp), x2: x(def + 1), y2: y(hp) + CELL });
         }
       }
     }
@@ -115,7 +118,7 @@ export function SurvivalMap({
         {anyUnaffordable && (
           <span className="survival-key">
             <span className="survival-swatch survival-swatch-out" />
-            over budget
+            needs points spent elsewhere
           </span>
         )}
       </div>
@@ -126,7 +129,7 @@ export function SurvivalMap({
         role="img"
         aria-label={
           `Hits survived against ${attackerLabel} ${moveName} for every split of Stat Points ` +
-          `between HP and ${defLabel}.`
+          `between ${defLabel} (horizontal) and HP (vertical).`
         }
         onMouseLeave={() => setHover(null)}
       >
@@ -134,8 +137,8 @@ export function SurvivalMap({
           row.map((cell, def) => (
             <rect
               key={`${hp}-${def}`}
-              x={x(hp)}
-              y={y(def)}
+              x={x(def)}
+              y={y(hp)}
               width={CELL}
               height={CELL}
               fill={bandFill(cell.hitsToKO)}
@@ -156,13 +159,16 @@ export function SurvivalMap({
           />
         ))}
 
-        {/* Everything on or under this line fits in the remaining Stat Points. */}
-        {grid.budget <= AXIS_MAX * 2 && (
+        {/*
+          The budget line: def + hp = budget. Only drawn when it actually crosses the
+          grid — with all 66 points free, 32+32 fits and nothing is out of reach.
+        */}
+        {anyUnaffordable && (
           <line
             x1={x(Math.max(0, grid.budget - AXIS_MAX))}
-            y1={y(Math.min(AXIS_MAX, grid.budget - Math.max(0, grid.budget - AXIS_MAX)))}
+            y1={y(Math.min(AXIS_MAX, grid.budget))}
             x2={x(Math.min(AXIS_MAX, grid.budget))}
-            y2={y(Math.max(0, grid.budget - Math.min(AXIS_MAX, grid.budget)))}
+            y2={y(Math.max(0, grid.budget - AXIS_MAX))}
             stroke="#9daabd" strokeWidth={1.5} strokeDasharray="4 3"
             pointerEvents="none"
           />
@@ -170,12 +176,12 @@ export function SurvivalMap({
 
         {/* Current spread. */}
         <rect
-          x={x(curHP)} y={y(curDef)} width={CELL} height={CELL}
+          x={x(curDef)} y={y(curHP)} width={CELL} height={CELL}
           fill="none" stroke="#e6ecf5" strokeWidth={2} pointerEvents="none"
         />
         {hover && (
           <rect
-            x={x(hover.hpSP)} y={y(hover.defSP)} width={CELL} height={CELL}
+            x={x(hover.defSP)} y={y(hover.hpSP)} width={CELL} height={CELL}
             fill="none" stroke="#4f8cff" strokeWidth={2} pointerEvents="none"
           />
         )}
@@ -200,7 +206,7 @@ export function SurvivalMap({
           </text>
         ))}
         <text x={PAD.left + SIZE / 2} y={height - 2} className="survival-axis" textAnchor="middle">
-          HP Stat Points
+          {defLabel} Stat Points
         </text>
         <text
           x={-(PAD.top + SIZE / 2)}
@@ -209,7 +215,7 @@ export function SurvivalMap({
           textAnchor="middle"
           transform="rotate(-90)"
         >
-          {defLabel} Stat Points
+          HP Stat Points
         </text>
       </svg>
 
@@ -223,13 +229,16 @@ export function SurvivalMap({
         </span>
         <span className="muted small">
           {shown.worstPct.toFixed(1)}% at the highest roll · {shown.maxHP} HP
-          {!shown.affordable && ' · over budget'}
+          {!shown.affordable && ` · needs ${shown.hpSP + shown.defSP - grid.budget} more points`}
         </span>
       </div>
       <p className="muted small survival-hint">
         {hover ? 'Click a square to apply that spread.' : 'Hover any square for its numbers.'}
-        {' '}The white outline is the current spread
-        {anyUnaffordable ? '; the dashed line is where your points run out.' : '.'}
+        {' '}The white outline is the current spread.
+        {anyUnaffordable
+          ? ` Only ${grid.budget} of your 66 points are free — the rest are committed to other` +
+            ' stats, so the dimmed area past the dashed line needs points freed up first.'
+          : ' All 66 points are free, so every square here is reachable.'}
       </p>
     </div>
   );

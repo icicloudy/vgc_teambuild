@@ -15,7 +15,8 @@ export type TabId =
   | 'build' | 'calc' | 'threats' | 'speed' | 'analysis' | 'coach' | 'threatdb' | 'roster';
 
 export interface CalcSlotRef {
-  kind: 'team' | 'threat';
+  /** 'custom' is a free-form Pokémon that is neither on the team nor a listed threat. */
+  kind: 'team' | 'threat' | 'custom';
   id: string;
 }
 
@@ -35,6 +36,8 @@ interface AppState {
   defenderState: CombatantState;
   calcAttacker: CalcSlotRef | null;
   calcDefender: CalcSlotRef | null;
+  /** Free-form Pokémon for the calculator, one per side. */
+  calcCustom: { attacker: PokemonSet | null; defender: PokemonSet | null };
 
   // actions
   setTab: (t: TabId) => void;
@@ -60,6 +63,7 @@ interface AppState {
   setAttackerState: (patch: Partial<CombatantState>) => void;
   setDefenderState: (patch: Partial<CombatantState>) => void;
   setCalcRef: (side: 'attacker' | 'defender', ref: CalcSlotRef | null) => void;
+  setCalcCustom: (side: 'attacker' | 'defender', patch: Partial<PokemonSet>) => void;
 
   toggleThreat: (id: string) => void;
   upsertThreat: (threat: ThreatSet) => void;
@@ -122,6 +126,7 @@ export const useStore = create<AppState>()(
       defenderState: defaultCombatant(),
       calcAttacker: null,
       calcDefender: null,
+      calcCustom: { attacker: null, defender: null },
 
       setTab: (tab) => set({ tab }),
       setFormat: (formatId) => {
@@ -207,6 +212,12 @@ export const useStore = create<AppState>()(
       setCalcRef: (side, ref) =>
         set(side === 'attacker' ? { calcAttacker: ref } : { calcDefender: ref }),
 
+      setCalcCustom: (side, patch) =>
+        set((s) => {
+          const current = s.calcCustom[side] ?? { ...emptySet('Incineroar'), level: getFormat(s.formatId).level };
+          return { calcCustom: { ...s.calcCustom, [side]: { ...current, ...patch } } };
+        }),
+
       toggleThreat: (id) =>
         set((s) => ({
           disabledThreats: s.disabledThreats.includes(id)
@@ -255,6 +266,7 @@ export const useStore = create<AppState>()(
         disabledThreats: s.disabledThreats,
         rosterOverride: s.rosterOverride,
         field: s.field,
+        calcCustom: s.calcCustom,
       }),
       merge: (persisted, current) => {
         const p = (persisted ?? {}) as Partial<AppState>;

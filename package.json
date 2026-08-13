@@ -15,7 +15,8 @@
     "smoke:mobile": "node scripts/mobile-check.mjs",
     "build:artifact": "npm run data && tsc -b && vite build --config vite.artifact.config.ts && node scripts/make-artifact.mjs",
     "check:artifact": "node scripts/artifact-check.mjs",
-    "data": "node scripts/build-dataset.mjs"
+    "data": "node scripts/build-dataset.mjs",
+    "smoke:features": "node scripts/feature-check.mjs"
   },
   "dependencies": {
     "@smogon/calc": "^0.11.0",
