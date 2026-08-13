@@ -1,7 +1,7 @@
-import type { Species } from '@pkmn/dex';
 import type { FormatRules, PokemonSet, StatID, StatsTable } from '../types';
 import { STATS } from '../types';
 import { getSpecies, megaFromItem, natureModifier, toID } from '../data/dex';
+import type { Species } from '../data/dex';
 import type { MegaOption } from '../data/dex';
 
 export interface ResolvedForm {
@@ -36,8 +36,8 @@ export function resolveForm(set: PokemonSet, format: FormatRules): ResolvedForm 
 
   const species = mega ? mega.species : base;
   const ability = mega
-    ? (Object.values(mega.species.abilities)[0] as string)
-    : set.ability || (Object.values(base.abilities)[0] as string);
+    ? mega.species.abilities[0]
+    : set.ability || base.abilities[0];
 
   return {
     species,

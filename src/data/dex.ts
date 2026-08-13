@@ -1,7 +1,16 @@
-import { Dex } from '@pkmn/dex';
-import type { Species, Move, Item, Ability } from '@pkmn/dex';
 import { Generations as CalcGenerations } from '@smogon/calc';
-import type { StatID } from '../types';
+import type { StatID, StatsTable } from '../types';
+import raw from './generated/dex-data.json';
+
+/**
+ * Dex access for the app.
+ *
+ * The data comes from `src/data/generated/dex-data.json`, produced by
+ * `npm run data` from @pkmn/dex. Generating it keeps ~4.8 MB of multi-generation
+ * Pokédex out of the bundle: only the species a Champions team can contain, the
+ * moves they can carry (learnsets pre-merged across pre-evolutions) and the
+ * fields this app reads actually ship.
+ */
 
 /** Damage-calculator view of Gen 9 (Champions runs on Gen 9 mechanics). */
 export const calcGen = CalcGenerations.get(9);
@@ -13,38 +22,113 @@ export const TYPES = [
 
 export type TypeName = (typeof TYPES)[number];
 
-export const NATURES = [
-  'Adamant', 'Bashful', 'Bold', 'Brave', 'Calm', 'Careful', 'Docile', 'Gentle', 'Hardy',
-  'Hasty', 'Impish', 'Jolly', 'Lax', 'Lonely', 'Mild', 'Modest', 'Naive', 'Naughty',
-  'Quiet', 'Quirky', 'Rash', 'Relaxed', 'Sassy', 'Serious', 'Timid',
-];
+export interface Species {
+  id: string;
+  name: string;
+  num: number;
+  types: string[];
+  baseStats: StatsTable;
+  /** Ordered; the first entry is the default ability. */
+  abilities: string[];
+  weightkg: number;
+  tags?: string[];
+  isNonstandard?: string;
+  forme?: string;
+  /** Only present on alternate formes. */
+  baseSpecies?: string;
+  prevo?: string;
+  nfe?: boolean;
+  doublesTier?: string;
+  requiredItem?: string;
+  /** A base forme a builder can pick, as opposed to a Mega/Primal result. */
+  selectable?: boolean;
+}
+
+export interface Move {
+  id: string;
+  name: string;
+  type: string;
+  category: 'Physical' | 'Special' | 'Status';
+  basePower: number;
+  /** `true` means the move never misses. */
+  accuracy: number | true;
+  target: string;
+  priority: number;
+  shortDesc: string;
+  isNonstandard?: string;
+}
+
+export interface Item {
+  id: string;
+  name: string;
+  num: number;
+  shortDesc: string;
+  /** Base species name -> Mega forme name. */
+  megaStone?: Record<string, string>;
+  isNonstandard?: string;
+}
+
+export interface Ability {
+  id: string;
+  name: string;
+}
+
+interface DexData {
+  species: Species[];
+  moves: Move[];
+  items: Item[];
+  abilities: Ability[];
+  types: Record<string, Record<string, number>>;
+  natures: Record<string, { plus?: StatID; minus?: StatID }>;
+  /** Species id -> indices into `moves`. */
+  learnsets: Record<string, number[]>;
+  /** Alias id -> species id. */
+  aliases: Record<string, string>;
+}
+
+const data = raw as unknown as DexData;
+
+export const NATURES = Object.keys(data.natures).sort();
 
 export function toID(s: string): string {
   return ('' + s).toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
+/* ------------------------------------------------------------------ *
+ * Lookups
+ * ------------------------------------------------------------------ */
+
+const speciesById = new Map<string, Species>(data.species.map((s) => [s.id, s]));
+const movesById = new Map<string, Move>(data.moves.map((m) => [m.id, m]));
+const itemsById = new Map<string, Item>(data.items.map((i) => [i.id, i]));
+const abilitiesById = new Map<string, Ability>(data.abilities.map((a) => [a.id, a]));
+
 export function getSpecies(name: string): Species | null {
   if (!name) return null;
-  const s = Dex.species.get(name);
-  return s && s.exists ? s : null;
+  const id = toID(name);
+  const direct = speciesById.get(id);
+  if (direct) return direct;
+  // "Mega Charizard Y", "Landorus-T", "Ttar" and friends.
+  const alias = data.aliases[id];
+  return alias ? speciesById.get(alias) ?? null : null;
 }
 
 export function getMove(name: string): Move | null {
-  if (!name) return null;
-  const m = Dex.moves.get(name);
-  return m && m.exists ? m : null;
+  return name ? movesById.get(toID(name)) ?? null : null;
 }
 
 export function getItem(name: string): Item | null {
-  if (!name) return null;
-  const i = Dex.items.get(name);
-  return i && i.exists ? i : null;
+  return name ? itemsById.get(toID(name)) ?? null : null;
 }
 
 export function getAbility(name: string): Ability | null {
+  return name ? abilitiesById.get(toID(name)) ?? null : null;
+}
+
+export function getNature(name: string): { name: string; plus?: StatID; minus?: StatID } | null {
   if (!name) return null;
-  const a = Dex.abilities.get(name);
-  return a && a.exists ? a : null;
+  const key = Object.keys(data.natures).find((n) => toID(n) === toID(name));
+  return key ? { name: key, ...data.natures[key] } : null;
 }
 
 /* ------------------------------------------------------------------ *
@@ -55,9 +139,9 @@ export function getAbility(name: string): Ability | null {
 const DAMAGE_TAKEN_MULTIPLIER: Record<number, number> = { 0: 1, 1: 2, 2: 0.5, 3: 0 };
 
 export function typeEffect(attacking: string, defending: string): number {
-  const def = Dex.types.get(defending);
-  if (!def || !def.exists) return 1;
-  const code = def.damageTaken[attacking];
+  const taken = data.types[defending];
+  if (!taken) return 1;
+  const code = taken[attacking];
   return code === undefined ? 1 : (DAMAGE_TAKEN_MULTIPLIER[code] ?? 1);
 }
 
@@ -83,28 +167,24 @@ export interface MegaOption {
 const megasByBase = new Map<string, MegaOption[]>();
 const megaByStone = new Map<string, MegaOption>();
 
-function buildMegaRegistry() {
-  for (const item of Dex.items.all()) {
-    if (!item.megaStone) continue;
-    // megaStone maps base species name -> mega forme name.
-    for (const [base, forme] of Object.entries(item.megaStone as Record<string, string>)) {
-      const species = Dex.species.get(forme);
-      if (!species || !species.exists) continue;
-      const opt: MegaOption = {
-        forme: species.name,
-        stone: item.name,
-        stoneId: item.id,
-        species,
-        isNew: species.isNonstandard === 'Future',
-      };
-      const key = toID(base);
-      if (!megasByBase.has(key)) megasByBase.set(key, []);
-      megasByBase.get(key)!.push(opt);
-      megaByStone.set(item.id, opt);
-    }
+for (const item of data.items) {
+  if (!item.megaStone) continue;
+  for (const [base, forme] of Object.entries(item.megaStone)) {
+    const species = getSpecies(forme);
+    if (!species) continue;
+    const opt: MegaOption = {
+      forme: species.name,
+      stone: item.name,
+      stoneId: item.id,
+      species,
+      isNew: species.isNonstandard === 'Future',
+    };
+    const key = toID(base);
+    if (!megasByBase.has(key)) megasByBase.set(key, []);
+    megasByBase.get(key)!.push(opt);
+    megaByStone.set(item.id, opt);
   }
 }
-buildMegaRegistry();
 
 export function megasFor(speciesName: string): MegaOption[] {
   return megasByBase.get(toID(speciesName)) ?? [];
@@ -123,7 +203,7 @@ export function megaFromItem(speciesName: string, itemName: string): MegaOption 
 }
 
 export function allMegaStones(): Item[] {
-  return Dex.items.all().filter((i) => !!i.megaStone);
+  return data.items.filter((i) => !!i.megaStone);
 }
 
 /* ------------------------------------------------------------------ *
@@ -141,84 +221,56 @@ export function speciesTags(s: Species): SpeciesTag[] {
   return [...(s.tags ?? [])] as SpeciesTag[];
 }
 
+const selectable = data.species
+  .filter((s) => s.selectable)
+  .sort((a, b) => a.name.localeCompare(b.name));
+
 /** Every base forme that could plausibly be selected in a builder. */
 export function allSelectableSpecies(): Species[] {
-  const out: Species[] = [];
-  for (const s of Dex.species.all()) {
-    if (s.forme && (s.forme.startsWith('Mega') || s.forme === 'Primal')) continue;
-    if (s.isNonstandard && s.isNonstandard !== 'Future') continue;
-    if (s.isCosmeticForme) continue;
-    if (s.num <= 0) continue;
-    out.push(s);
-  }
-  return out.sort((a, b) => a.name.localeCompare(b.name));
+  return selectable;
 }
 
-/** Base stat total helper that tolerates missing data. */
 export function bst(s: Species): number {
   return (Object.values(s.baseStats) as number[]).reduce((a, b) => a + b, 0);
 }
 
 /* ------------------------------------------------------------------ *
- * Learnsets (lazy, cached)
+ * Learnsets
+ *
+ * Pre-merged at generation time across pre-evolutions and base formes, so a
+ * Pokémon transferred into Champions keeps what it could learn earlier. The
+ * async entry point is kept for callers that were written against the old lazy
+ * loader; it now resolves immediately.
  * ------------------------------------------------------------------ */
 
 const learnsetCache = new Map<string, string[]>();
-const learnsetPending = new Map<string, Promise<string[]>>();
 
-async function fetchLearnset(speciesName: string): Promise<string[]> {
+function resolveLearnset(speciesName: string): string[] {
   const species = getSpecies(speciesName);
   if (!species) return [];
+  const cached = learnsetCache.get(species.id);
+  if (cached) return cached;
 
-  const ids = new Set<string>();
-  // Walk up through pre-evolutions and the base forme so transferred Pokémon keep
-  // everything they could legally have learned before arriving in Champions.
-  const queue: string[] = [species.name];
-  const seen = new Set<string>();
-  while (queue.length) {
-    const name = queue.shift()!;
-    if (seen.has(toID(name))) continue;
-    seen.add(toID(name));
-    const cur = getSpecies(name);
-    if (!cur) continue;
-    try {
-      const ls = await Dex.learnsets.get(cur.id);
-      if (ls?.learnset) for (const id of Object.keys(ls.learnset)) ids.add(id);
-    } catch {
-      /* species without learnset data */
-    }
-    if (cur.prevo) queue.push(cur.prevo);
-    if (cur.baseSpecies && cur.baseSpecies !== cur.name) queue.push(cur.baseSpecies);
-    if (cur.changesFrom) queue.push(cur.changesFrom as string);
-  }
-
-  const names: string[] = [];
-  for (const id of ids) {
-    const move = Dex.moves.get(id);
-    if (!move?.exists) continue;
-    if (move.isNonstandard && move.isNonstandard !== 'Future') continue; // drops Past-only moves
-    names.push(move.name);
-  }
-  return names.sort((a, b) => a.localeCompare(b));
+  // Mega formes share their base species' movepool.
+  const key = data.learnsets[species.id]
+    ? species.id
+    : toID(species.baseSpecies ?? species.name);
+  const indices = data.learnsets[key] ?? [];
+  const names = indices
+    .map((i) => data.moves[i]?.name)
+    .filter(Boolean)
+    .sort((a, b) => a.localeCompare(b));
+  learnsetCache.set(species.id, names);
+  return names;
 }
 
 export function learnsetSync(speciesName: string): string[] | null {
-  return learnsetCache.get(toID(speciesName)) ?? null;
+  const species = getSpecies(speciesName);
+  return species ? resolveLearnset(speciesName) : null;
 }
 
 export async function loadLearnset(speciesName: string): Promise<string[]> {
-  const key = toID(speciesName);
-  const cached = learnsetCache.get(key);
-  if (cached) return cached;
-  const pending = learnsetPending.get(key);
-  if (pending) return pending;
-  const p = fetchLearnset(speciesName).then((moves) => {
-    learnsetCache.set(key, moves);
-    learnsetPending.delete(key);
-    return moves;
-  });
-  learnsetPending.set(key, p);
-  return p;
+  return resolveLearnset(speciesName);
 }
 
 /* ------------------------------------------------------------------ *
@@ -227,7 +279,7 @@ export async function loadLearnset(speciesName: string): Promise<string[]> {
 
 /**
  * Showdown sprite id. Champions-exclusive megas have no sprite upstream yet, so
- * callers should render the monogram fallback when the image fails to load.
+ * callers render the type-coloured fallback when the image fails to load.
  */
 export function spriteId(speciesName: string): string {
   const s = getSpecies(speciesName);
@@ -235,8 +287,7 @@ export function spriteId(speciesName: string): string {
   return s.name
     .toLowerCase()
     .replace(/[.'’ ]/g, '')
-    .replace(/-mega-([xyz])/, '-mega$1')
-    .replace(/-/g, '-');
+    .replace(/-mega-([xyz])/, '-mega$1');
 }
 
 export function spriteUrl(speciesName: string): string {
@@ -252,33 +303,32 @@ export function itemSpriteUrl(itemName: string): string {
  * ------------------------------------------------------------------ */
 
 export function abilitiesFor(speciesName: string): string[] {
-  const s = getSpecies(speciesName);
-  if (!s) return [];
-  return [...new Set(Object.values(s.abilities).filter(Boolean))] as string[];
+  return [...(getSpecies(speciesName)?.abilities ?? [])];
 }
 
+// The dataset already excludes fan-made and unobtainable items; everything left is
+// usable in Champions, including the legacy Mega Stones the dex marks as "Past".
+const usableItems = [...data.items]
+  .filter((i) => i.num >= 0)
+  .sort((a, b) => a.name.localeCompare(b.name));
+
 export function allItems(): Item[] {
-  return Dex.items
-    .all()
-    .filter((i) => i.exists && (!i.isNonstandard || i.isNonstandard === 'Future') && i.num >= 0)
-    .sort((a, b) => a.name.localeCompare(b.name));
+  return usableItems;
 }
 
 export function natureModifier(nature: string, stat: StatID): number {
-  const n = Dex.natures.get(nature);
-  if (!n || !n.exists) return 1;
+  const n = getNature(nature);
+  if (!n) return 1;
   if (n.plus === stat) return 1.1;
   if (n.minus === stat) return 0.9;
   return 1;
 }
 
 export function natureLabel(nature: string): string {
-  const n = Dex.natures.get(nature);
-  if (!n?.exists || !n.plus || !n.minus) return `${nature} (neutral)`;
+  const n = getNature(nature);
+  if (!n?.plus || !n.minus) return `${nature} (neutral)`;
   const short: Record<string, string> = {
     atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe',
   };
   return `${nature} (+${short[n.plus]} / -${short[n.minus]})`;
 }
-
-export { Dex };

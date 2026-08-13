@@ -10,6 +10,7 @@ import { viteSingleFile } from 'vite-plugin-singlefile';
  */
 export default defineConfig({
   plugins: [react(), viteSingleFile()],
+  json: { stringify: true },
   define: {
     'import.meta.env.VITE_OFFLINE_SPRITES': JSON.stringify('1'),
   },

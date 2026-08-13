@@ -78,8 +78,8 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
       .map((i) => ({
         value: i.name,
         label: i.name,
-        keywords: i.desc ?? '',
-        sublabel: <span className="muted small">{i.shortDesc || i.desc || ''}</span>,
+        keywords: i.shortDesc,
+        sublabel: <span className="muted small">{i.shortDesc}</span>,
         group: i.megaStone ? 'Mega Stone' : 'Item',
       }))
       .sort((a, b) => (a.group === 'Mega Stone' ? -1 : 0) - (b.group === 'Mega Stone' ? -1 : 0));
@@ -172,7 +172,7 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
                   if (!s) return;
                   update(index, {
                     species: s.name,
-                    ability: Object.values(s.abilities)[0] as string,
+                    ability: s.abilities[0],
                     item: megasFor(s.name).some((m) => m.stoneId === toID(member.item))
                       ? member.item
                       : getItem(member.item)?.megaStone ? '' : member.item,

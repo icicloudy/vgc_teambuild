@@ -4,7 +4,10 @@
  */
 import { BUILT_IN_THREATS } from '../src/data/threats.ts';
 import { FORMATS, getFormat } from '../src/data/formats.ts';
-import { abilitiesFor, getItem, getMove, getSpecies, loadLearnset, toID, megaFromItem } from '../src/data/dex.ts';
+import {
+  abilitiesFor, allItems, allSelectableSpecies, getItem, getMove, getSpecies,
+  loadLearnset, megaFromItem, megasFor, toID,
+} from '../src/data/dex.ts';
 import { threatToSet, buildMatrix, summariseThreats } from '../src/engine/matrix.ts';
 import { calcDamage, defaultField, displayName } from '../src/engine/calc.ts';
 import { resolveForm, evTotal } from '../src/engine/stats.ts';
@@ -51,6 +54,48 @@ for (const t of BUILT_IN_THREATS) {
   }
 }
 if (!failures) ok(`${BUILT_IN_THREATS.length} threat sets are internally consistent`);
+
+console.log('\n=== Roster coverage ===');
+{
+  // The dex marks anything absent from Scarlet/Violet as "Past", which covers 22
+  // Mega base species and every legacy Mega Stone. Champions is fed from HOME and
+  // is built around those Megas, so they must all be reachable in the builder.
+  const selectable = new Set(allSelectableSpecies().map((s) => s.id));
+  const missing = [];
+  for (const s of allSelectableSpecies()) void s;
+  const stones = allItems().filter((i) => i.megaStone);
+  const bases = new Set();
+  for (const stone of stones) for (const b of Object.keys(stone.megaStone!)) bases.add(toID(b));
+  for (const b of bases) {
+    if (!selectable.has(b as string)) missing.push(b);
+  }
+  if (missing.length) fail(`Mega base species not selectable: ${missing.join(', ')}`);
+  else ok(`all ${bases.size} Mega base species are selectable`);
+
+  for (const name of ['Mawile', 'Kangaskhan', 'Absol', 'Steelix', 'Alakazam']) {
+    if (!getSpecies(name)) fail(`${name} is missing from the dataset`);
+    else if (!allSelectableSpecies().some((s) => s.name === name)) fail(`${name} is not selectable`);
+  }
+  ok('pre-Gen-9 Mega bases (Mawile, Kangaskhan, Absol, Steelix, Alakazam) are selectable');
+
+  const stoneNames = ['Charizardite Y', 'Mawilite', 'Metagrossite', 'Staraptite'];
+  const listed = new Set(allItems().map((i) => i.name));
+  const absent = stoneNames.filter((n) => !listed.has(n));
+  if (absent.length) fail(`Mega Stones missing from the item list: ${absent.join(', ')}`);
+  else ok('legacy and Champions-era Mega Stones both appear in the item list');
+
+  if (megasFor('Mawile').length !== 1) fail('Mawile lost its Mega');
+  const learn = await loadLearnset('Mawile');
+  if (!learn.some((m) => toID(m) === 'playrough')) fail('Mawile learnset missing Play Rough');
+  else ok(`learnsets resolve for pre-Gen-9 species (Mawile: ${learn.length} moves)`);
+
+  // Aliases keep Showdown pastes importable.
+  for (const [alias, expected] of [['Mega Charizard Y', 'Charizard-Mega-Y'], ['Ttar', 'Tyranitar'], ['Landorus-T', 'Landorus-Therian']]) {
+    const got = getSpecies(alias)?.name;
+    if (got !== expected) fail(`alias "${alias}" resolved to ${got} (expected ${expected})`);
+  }
+  ok('name aliases resolve');
+}
 
 console.log('\n=== Damage calculation ===');
 {

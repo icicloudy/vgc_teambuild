@@ -1,7 +1,6 @@
 import type { PokemonSet, StatID, StatsTable } from '../types';
 import { STATS, emptyEVs, maxIVs } from '../types';
-import { Dex, getItem, getSpecies, toID } from '../data/dex';
-import { natureModifier } from '../data/dex';
+import { getAbility, getItem, getMove, getNature, getSpecies, natureModifier, toID } from '../data/dex';
 
 const STAT_ALIASES: Record<string, StatID> = {
   hp: 'hp', atk: 'atk', def: 'def', spa: 'spa', spd: 'spd', spe: 'spe',
@@ -21,7 +20,7 @@ export function emptySet(species = ''): PokemonSet {
     species: s?.name ?? species,
     nickname: '',
     item: '',
-    ability: s ? (Object.values(s.abilities)[0] as string) : '',
+    ability: s ? s.abilities[0] : '',
     level: 50,
     nature: 'Serious',
     evs: emptyEVs(),
@@ -68,7 +67,7 @@ export function exportSet(set: PokemonSet): string {
   if (ivLine) lines.push(`IVs: ${ivLine}`);
 
   for (const move of set.moves) {
-    if (move) lines.push(`- ${Dex.moves.get(move)?.name ?? move}`);
+    if (move) lines.push(`- ${getMove(move)?.name ?? move}`);
   }
   return lines.join('\n');
 }
@@ -138,7 +137,7 @@ function importSet(block: string, errors: string[]): PokemonSet | null {
   }
   // A Mega forme in the paste becomes base species + stone.
   if (species.forme?.startsWith('Mega')) {
-    const base = getSpecies(species.baseSpecies);
+    const base = getSpecies(species.baseSpecies ?? species.name);
     set.species = base?.name ?? species.name;
     if (species.requiredItem && !item) item = species.requiredItem;
   } else {
@@ -156,9 +155,9 @@ function importSet(block: string, errors: string[]): PokemonSet | null {
   for (const line of lines.slice(1)) {
     if (line.startsWith('-') || line.startsWith('~')) {
       const raw = line.slice(1).trim().split('/')[0].trim();
-      const move = Dex.moves.get(raw);
-      if (!move?.exists) errors.push(`Unknown move: "${raw}"`);
-      moves.push(move?.exists ? move.name : raw);
+      const move = getMove(raw);
+      if (!move) errors.push(`Unknown move: "${raw}"`);
+      moves.push(move ? move.name : raw);
       continue;
     }
     const colon = line.indexOf(':');
@@ -166,7 +165,7 @@ function importSet(block: string, errors: string[]): PokemonSet | null {
     const value = colon >= 0 ? line.slice(colon + 1).trim() : '';
 
     switch (key) {
-      case 'ability': set.ability = Dex.abilities.get(value)?.name ?? value; break;
+      case 'ability': set.ability = getAbility(value)?.name ?? value; break;
       case 'level': set.level = Number(value) || 50; break;
       case 'shiny': set.shiny = /yes|true/i.test(value); break;
       case 'happiness': set.happiness = Number(value) || undefined; break;
@@ -176,14 +175,13 @@ function importSet(block: string, errors: string[]): PokemonSet | null {
       case 'gender': set.gender = (value.toUpperCase()[0] as 'M' | 'F' | 'N') ?? 'N'; break;
       default: {
         const nature = /^([A-Za-z]+)\s+Nature$/i.exec(line);
-        if (nature && Dex.natures.get(nature[1])?.exists) {
-          set.nature = Dex.natures.get(nature[1]).name;
-        }
+        const resolved = nature && getNature(nature[1]);
+        if (resolved) set.nature = resolved.name;
       }
     }
   }
 
-  if (!set.ability) set.ability = Object.values(species.abilities)[0] as string;
+  if (!set.ability) set.ability = species.abilities[0];
   set.moves = [moves[0] ?? '', moves[1] ?? '', moves[2] ?? '', moves[3] ?? ''];
   return set;
 }

@@ -8,6 +8,7 @@ Runs entirely in the browser. No backend, no account, teams saved to local stora
 
 ```bash
 npm install
+npm run data           # regenerate the bundled dex dataset
 npm run dev            # http://localhost:5173
 npm run build          # static bundle in dist/
 npm run check          # offline data + engine sanity checks
@@ -110,6 +111,13 @@ tells you where it is guessing:
 - **Species, moves, abilities, items, base stats, type chart, learnsets** — from `@pkmn/dex`,
   which already carries the Champions-era Mega Evolutions (Mega Staraptor with Contrary,
   Mega Baxcalibur, the `-Z` Megas, and the rest) with real stats and stone mappings.
+  `npm run data` distils it into `src/data/generated/dex-data.json`, so the app ships one
+  compact dataset instead of 4.8 MB of nine-generation Pokédex. One judgement call is baked
+  in: the dex flags anything absent from Scarlet/Violet as "Past", which covers 22 Mega base
+  species (Mawile, Kangaskhan, Absol, Steelix…) and *every* legacy Mega Stone. Champions is
+  fed from Pokémon HOME and built around those Megas, so they are treated as legal here.
+  Moves are the exception — Champions runs on Gen 9 mechanics, so a move cut from Gen 9
+  really is gone.
 - **Damage** — `@smogon/calc` on Gen 9 mechanics, with Mega formes applied as species
   overrides. Spread reduction, weather, terrain, screens, Helping Hand, Friend Guard,
   Intimidate, items and abilities all behave as they do in the calculator you already trust.
@@ -141,6 +149,7 @@ src/
               · EV optimizer · suggestions · Showdown import-export
   components/ UI
 scripts/
+  build-dataset.mjs distils @pkmn/dex into the compact dataset the app ships
   check-data.ts     validates the threat DB and exercises the engine offline
   smoke.mjs         builds a team through the real UI in Chromium
   mobile-check.mjs  asserts the phone layout stays operable
@@ -157,7 +166,7 @@ damage math, the optimizer, legality and paste round-tripping without a browser.
 
 `npm run build:artifact` bundles the entire app — React, the dex, the damage
 calculator, every asset — into one self-contained HTML file at
-`artifact/champions-teambuilder.html` (~5.6 MB, ~970 KB over the wire). It makes no
+`artifact/champions-teambuilder.html` (~1.7 MB, ~390 KB over the wire). It makes no
 external requests at all, so it runs behind a strict content-security policy, from a
 `file://` URL, or fully offline.
 

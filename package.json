@@ -6,25 +6,25 @@
   "scripts": {
     "dev": "vite",
     "dev:lan": "HOST_ALL=1 vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run data && tsc -b && vite build",
     "preview": "vite preview",
     "preview:lan": "HOST_ALL=1 vite preview",
     "lint": "oxlint",
     "check": "tsx scripts/check-data.ts",
     "smoke": "node scripts/smoke.mjs",
     "smoke:mobile": "node scripts/mobile-check.mjs",
-    "build:artifact": "tsc -b && vite build --config vite.artifact.config.ts && node scripts/make-artifact.mjs",
-    "check:artifact": "node scripts/artifact-check.mjs"
+    "build:artifact": "npm run data && tsc -b && vite build --config vite.artifact.config.ts && node scripts/make-artifact.mjs",
+    "check:artifact": "node scripts/artifact-check.mjs",
+    "data": "node scripts/build-dataset.mjs"
   },
   "dependencies": {
-    "@pkmn/data": "^0.10.11",
-    "@pkmn/dex": "^0.10.11",
     "@smogon/calc": "^0.11.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "zustand": "^5.0.15"
   },
   "devDependencies": {
+    "@pkmn/dex": "^0.10.11",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",

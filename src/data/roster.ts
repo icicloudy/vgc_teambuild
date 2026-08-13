@@ -1,6 +1,6 @@
-import type { Species } from '@pkmn/dex';
 import type { FormatRules, RosterConfidence, SpeciesCategory } from '../types';
-import { Dex, allSelectableSpecies, getSpecies, hasMega, megasFor, toID } from './dex';
+import { allSelectableSpecies, getSpecies, hasMega, megasFor, toID } from './dex';
+import type { Species } from './dex';
 
 /**
  * Champions ships a curated roster (208 species / 75 Megas as of Reg M-B) rather
@@ -176,8 +176,8 @@ export function parseRosterPaste(text: string): { species: string[]; unknown: st
   const species: string[] = [];
   const unknown: string[] = [];
   for (const line of raw) {
-    const s = Dex.species.get(line);
-    if (s?.exists) {
+    const s = getSpecies(line);
+    if (s) {
       const base = s.baseSpecies && s.forme?.startsWith('Mega') ? s.baseSpecies : s.name;
       if (!species.includes(base)) species.push(base);
     } else {
