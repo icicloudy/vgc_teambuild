@@ -26,8 +26,12 @@ export interface PokemonSet {
   ability: string;
   level: number;
   nature: string;
-  evs: StatsTable;
-  ivs: StatsTable;
+  /**
+   * Stat Points. Champions replaced EVs and IVs with SP: 66 to spend, at most 32
+   * in one stat, and 1 SP is exactly +1 to the final stat. Every Pokémon has the
+   * equivalent of 31 IVs in every stat, so IVs are not stored at all.
+   */
+  sp: StatsTable;
   moves: string[];
   gender?: GenderName;
   shiny?: boolean;
@@ -138,8 +142,7 @@ export interface ThreatSet {
   item: string;
   ability: string;
   nature: string;
-  evs: Partial<StatsTable>;
-  ivs?: Partial<StatsTable>;
+  sp: Partial<StatsTable>;
   moves: string[];
   /** 0-100, how common this Pokémon is in the format. Drives sorting + weighting. */
   usage: number;
@@ -167,12 +170,10 @@ export interface MatchupCell {
 }
 
 export const EMPTY_STATS: StatsTable = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
-export const MAX_IVS: StatsTable = { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 };
 
-export function emptyEVs(): StatsTable {
+/** Every Pokémon in Champions behaves as though it had 31 IVs across the board. */
+export const CHAMPIONS_IV = 31;
+
+export function emptySP(): StatsTable {
   return { ...EMPTY_STATS };
-}
-
-export function maxIVs(): StatsTable {
-  return { ...MAX_IVS };
 }

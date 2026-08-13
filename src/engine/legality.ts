@@ -5,7 +5,7 @@ import {
 } from '../data/dex';
 import { CATEGORY_LABELS, categoryViolation, rosterConfidence } from '../data/roster';
 import type { RosterOverride } from '../data/roster';
-import { MAX_EV_SINGLE, MAX_EV_TOTAL, evTotal, resolveForm } from './stats';
+import { MAX_SP_PER_STAT, MAX_SP_TOTAL, resolveForm, spTotal } from './stats';
 import { displayName } from './calc';
 import { plural } from '../text';
 
@@ -130,21 +130,27 @@ export function validateSet(
     }
   }
 
-  // --- EVs / IVs / level -------------------------------------------------
-  const total = evTotal(set.evs);
-  if (total > MAX_EV_TOTAL) {
+  // --- Stat Points / level ----------------------------------------------
+  const total = spTotal(set.sp);
+  if (total > MAX_SP_TOTAL) {
     out.push(
-      issue('error', slot, 'ev-total', `${label} uses ${total} EVs (max ${MAX_EV_TOTAL}).`),
+      issue('error', slot, 'sp-total',
+        `${label} spends ${total} Stat Points (max ${MAX_SP_TOTAL}).`,
+        `Free up ${total - MAX_SP_TOTAL}.`),
+    );
+  } else if (total < MAX_SP_TOTAL) {
+    out.push(
+      issue('info', slot, 'sp-unspent',
+        `${label} has ${MAX_SP_TOTAL - total} Stat Points unspent.`),
     );
   }
   for (const s of STATS) {
-    const ev = set.evs[s] ?? 0;
-    if (ev > MAX_EV_SINGLE) {
-      out.push(issue('error', slot, 'ev-single', `${label} has ${ev} ${s.toUpperCase()} EVs (max ${MAX_EV_SINGLE}).`));
+    const sp = set.sp[s] ?? 0;
+    if (sp > MAX_SP_PER_STAT) {
+      out.push(issue('error', slot, 'sp-single',
+        `${label} has ${sp} ${s.toUpperCase()} Stat Points (max ${MAX_SP_PER_STAT} per stat).`));
     }
-    if (ev < 0) out.push(issue('error', slot, 'ev-neg', `${label} has negative ${s} EVs.`));
-    const iv = set.ivs[s] ?? 31;
-    if (iv < 0 || iv > 31) out.push(issue('error', slot, 'iv-range', `${label} has an out-of-range ${s} IV.`));
+    if (sp < 0) out.push(issue('error', slot, 'sp-neg', `${label} has negative ${s} Stat Points.`));
   }
   if (set.level !== format.level) {
     out.push(

@@ -1,9 +1,10 @@
 import * as smogon from '@smogon/calc';
+import { natureModifier as natureModifierOf } from '../data/dex';
 import type {
   CombatantState, DamageResult, FieldState, FormatRules, PokemonSet, StatID, StatsTable,
 } from '../types';
-import { calcGen, getMove, getSpecies, natureModifier } from '../data/dex';
-import { resolveForm } from './stats';
+import { calcGen, getMove, getSpecies } from '../data/dex';
+import { computeStats, resolveForm } from './stats';
 
 const gen = calcGen;
 
@@ -43,6 +44,39 @@ export function toSmogonField(f: FieldState): smogon.Field {
   });
 }
 
+/**
+ * Base stats that make @smogon/calc reproduce a Champions Stat Point spread.
+ *
+ * The calculator has no concept of Stat Points, and assigning its `stats` after
+ * construction does not survive: `calculate()` clones both Pokémon, and `clone()`
+ * rebuilds stats from EVs/IVs — silently dropping the override and calculating
+ * with uninvested stats. `overrides.species` *is* carried through the clone, so
+ * the spread is encoded as base stats instead.
+ *
+ * Inverting the level-50 stat formula with 31 IVs, no EVs and a neutral nature
+ * gives an exact (possibly fractional) base stat for any target, so the numbers
+ * round-trip precisely rather than approximately.
+ */
+function syntheticBaseStats(
+  set: PokemonSet,
+  format: FormatRules,
+  realBase: StatsTable,
+): StatsTable {
+  const stats = computeStats(set, format);
+  const level = set.level;
+  const out = {} as StatsTable;
+  for (const stat of Object.keys(stats) as StatID[]) {
+    const target = stats[stat];
+    if (stat === 'hp') {
+      // Shedinja's 1 HP is a special case in the games and in the calculator.
+      out.hp = realBase.hp === 1 ? 1 : (((target - level - 10) * 100) / level - 31) / 2;
+    } else {
+      out[stat] = (((target - 5) * 100) / level - 31) / 2;
+    }
+  }
+  return out;
+}
+
 /** Build a calculator Pokémon, folding in the Mega forme when a stone is held. */
 export function toCalcPokemon(
   set: PokemonSet,
@@ -54,26 +88,27 @@ export function toCalcPokemon(
 
   const opts: Record<string, unknown> = {
     level: set.level,
-    nature: set.nature,
-    evs: set.evs,
-    ivs: set.ivs,
     item: set.item || undefined,
     ability: form.ability || undefined,
     abilityOn: state.abilityOn,
     boosts: state.boosts,
     status: state.status || undefined,
+    // Neutral nature: the Nature multiplier is already baked into the synthetic
+    // base stats below, so applying it twice would inflate every number.
+    nature: 'Serious',
     overrides: {
       types: form.types,
-      baseStats: form.baseStats,
+      baseStats: syntheticBaseStats(set, format, form.baseStats),
       weightkg: form.weightkg,
     },
   };
   if (format.teraAllowed && set.teraType) opts.teraType = set.teraType;
 
   const mon = new smogon.Pokemon(gen, form.base.name, opts as never);
-  if (state.hpPercent < 100) {
-    mon.originalCurHP = Math.max(1, Math.floor((mon.maxHP() * state.hpPercent) / 100));
-  }
+  const stats = computeStats(set, format);
+  mon.originalCurHP = state.hpPercent < 100
+    ? Math.max(1, Math.floor((stats.hp * state.hpPercent) / 100))
+    : stats.hp;
   return mon;
 }
 
@@ -94,11 +129,11 @@ export interface CalcOptions {
   singleTarget?: boolean;
 }
 
-function evNotation(set: PokemonSet, stat: StatID): string {
-  const ev = set.evs[stat] ?? 0;
-  const mod = natureModifier(set.nature, stat);
+function spNotation(set: PokemonSet, stat: StatID): string {
+  const sp = set.sp[stat] ?? 0;
+  const mod = natureModifierOf(set.nature, stat);
   const sign = mod > 1 ? '+' : mod < 1 ? '-' : '';
-  return `${ev}${sign}`;
+  return `${sp}${sign}`;
 }
 
 function describe(
@@ -112,8 +147,8 @@ function describe(
 ): string {
   const atkStat: StatID = category === 'Special' ? 'spa' : 'atk';
   const defStat: StatID = category === 'Special' ? 'spd' : 'def';
-  const atkPart = `${evNotation(attacker, atkStat)} ${category === 'Special' ? 'SpA' : 'Atk'}`;
-  const defPart = `${evNotation(defender, 'hp')} HP / ${evNotation(defender, defStat)} ${
+  const atkPart = `${spNotation(attacker, atkStat)} ${category === 'Special' ? 'SpA' : 'Atk'}`;
+  const defPart = `${spNotation(defender, 'hp')} HP / ${spNotation(defender, defStat)} ${
     category === 'Special' ? 'SpD' : 'Def'
   }`;
   return (
@@ -268,9 +303,7 @@ export function maxHPOf(set: PokemonSet, format: FormatRules): number {
 }
 
 export function statsOf(set: PokemonSet, format: FormatRules): StatsTable | null {
-  const mon = toCalcPokemon(set, format);
-  if (!mon) return null;
-  return { ...mon.stats } as StatsTable;
+  return resolveForm(set, format) ? computeStats(set, format) : null;
 }
 
 export function moveCategoryOf(moveName: string): 'Physical' | 'Special' | 'Status' {

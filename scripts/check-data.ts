@@ -9,10 +9,12 @@ import {
   loadLearnset, megaFromItem, megasFor, toID,
 } from '../src/data/dex.ts';
 import { threatToSet, buildMatrix, summariseThreats } from '../src/engine/matrix.ts';
-import { calcDamage, defaultField, displayName } from '../src/engine/calc.ts';
-import { resolveForm, evTotal } from '../src/engine/stats.ts';
+import { calcDamage, defaultField, displayName, maxHPOf, toCalcPokemon } from '../src/engine/calc.ts';
+import { computeStats } from '../src/engine/stats.ts';
+import { STATS } from '../src/types.ts';
+import { MAX_SP_PER_STAT, MAX_SP_TOTAL, resolveForm, spTotal, statAt, baseStatValue } from '../src/engine/stats.ts';
 import { exportTeam, importTeam } from '../src/engine/showdown.ts';
-import { minEVsToSurvive, minEVsToKO, minEVsToOutspeed } from '../src/engine/optimizer.ts';
+import { minSPToSurvive, minSPToKO, minSPToOutspeed, survivalGrid } from '../src/engine/optimizer.ts';
 import { validateTeam } from '../src/engine/legality.ts';
 import { rosterConfidence } from '../src/data/roster.ts';
 
@@ -31,8 +33,11 @@ for (const t of BUILT_IN_THREATS) {
   }
   if (t.item && !getItem(t.item)) fail(`${t.name}: unknown item ${t.item}`);
 
-  const total = Object.values(t.evs).reduce((a, b) => a + (b ?? 0), 0);
-  if (total > 508) fail(`${t.name}: ${total} EVs`);
+  const total = Object.values(t.sp).reduce((a, b) => a + (b ?? 0), 0);
+  if (total > MAX_SP_TOTAL) fail(`${t.name}: ${total} Stat Points (max ${MAX_SP_TOTAL})`);
+  for (const [stat, v] of Object.entries(t.sp)) {
+    if ((v ?? 0) > MAX_SP_PER_STAT) fail(`${t.name}: ${v} ${stat} Stat Points (max ${MAX_SP_PER_STAT})`);
+  }
 
   const conf = rosterConfidence(t.species, format, null);
   if (conf === 'excluded') fail(`${t.name}: ${t.species} is illegal in ${format.shortName}`);
@@ -129,6 +134,58 @@ console.log('\n=== Damage calculation ===');
   else ok('Mega Mawile picks up Huge Power');
 }
 
+console.log('\n=== Stat Points ===');
+{
+  const incin = getSpecies('Incineroar')!;
+  // 1 SP is exactly +1 to the stat, and the Nature multiplier scales only the base.
+  const bare = baseStatValue('atk', incin.baseStats.atk, 50, 'Adamant');
+  const one = statAt('atk', incin.baseStats.atk, 1, 50, 'Adamant');
+  const maxed = statAt('atk', incin.baseStats.atk, MAX_SP_PER_STAT, 50, 'Adamant');
+  if (one - bare !== 1) fail(`1 Stat Point moved Attack by ${one - bare}, expected 1`);
+  else if (maxed - bare !== MAX_SP_PER_STAT) fail('32 Stat Points did not add exactly 32');
+  else ok(`1 SP = +1 stat (Incineroar Adamant Atk ${bare} -> ${maxed} at ${MAX_SP_PER_STAT} SP)`);
+
+  const neutral = baseStatValue('atk', incin.baseStats.atk, 50, 'Serious');
+  if (bare <= neutral) fail('a boosting Nature did not raise the base stat');
+  else ok(`Nature scales the base only: Adamant ${bare} vs neutral ${neutral}`);
+
+  // @smogon/calc clones both Pokémon inside calculate(), and clone() rebuilds stats
+  // from EVs/IVs — so a spread must reach the calculator through something the clone
+  // carries. If this regresses, every damage number silently uses uninvested stats.
+  const chompSet = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'garchomp-sash')!, 50);
+  const base = { ...threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'incineroar-support')!, 50),
+    sp: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } };
+  const f = defaultField('Doubles');
+  const noDef = calcDamage(chompSet, base, 'Earthquake', format, f)!;
+  const maxDef = calcDamage(
+    chompSet, { ...base, sp: { ...base.sp, def: MAX_SP_PER_STAT } }, 'Earthquake', format, f)!;
+  if (!(maxDef.max < noDef.max)) {
+    fail(`defensive Stat Points did not reduce damage (${noDef.max} vs ${maxDef.max})`);
+  } else {
+    ok(`defence points reach the calculator: ${noDef.max} -> ${maxDef.max} damage at ${MAX_SP_PER_STAT} Def`);
+  }
+  const bulky = { ...base, sp: { ...base.sp, hp: MAX_SP_PER_STAT } };
+  if (maxHPOf(bulky, format) - maxHPOf(base, format) !== MAX_SP_PER_STAT) {
+    fail('HP Stat Points did not reach the calculator');
+  } else ok('HP points reach the calculator');
+
+  // Every stat the engine computes must equal what the calculator ends up using.
+  let mismatched = 0;
+  for (const t of BUILT_IN_THREATS) {
+    const set = threatToSet(t, 50);
+    const mine = computeStats(set, format);
+    const mon = toCalcPokemon(set, format)!;
+    for (const st of STATS) if (mon.rawStats[st] !== mine[st]) mismatched++;
+  }
+  if (mismatched) fail(`${mismatched} stat mismatches between engine and calculator`);
+  else ok(`all ${BUILT_IN_THREATS.length} threat sets round-trip every stat into the calculator`);
+
+  const hpBare = baseStatValue('hp', incin.baseStats.hp, 50, 'Adamant');
+  const hpNeutral = baseStatValue('hp', incin.baseStats.hp, 50, 'Serious');
+  if (hpBare !== hpNeutral) fail('Nature affected HP');
+  else ok(`HP ignores Nature (${hpBare})`);
+}
+
 console.log('\n=== Threat matrix ===');
 {
   const team = BUILT_IN_THREATS.slice(0, 6).map((t) => threatToSet(t, 50));
@@ -149,19 +206,36 @@ console.log('\n=== Optimizer ===');
   const field = defaultField('Doubles');
   const incin = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'incineroar-support')!, 50);
   const chomp = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'garchomp-sash')!, 50);
-  const bare = { ...incin, evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } };
+  const bare = { ...incin, sp: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } };
 
-  const survive = minEVsToSurvive({ defender: bare, attacker: chomp, move: 'Earthquake', format, field });
+  const survive = minSPToSurvive({ defender: bare, attacker: chomp, move: 'Earthquake', format, field });
   if (!survive.best) fail('no survive solution found');
   else if (survive.best.worstCasePct >= 100) fail('survive solution does not actually survive');
-  else ok(`Incineroar survives Life Orb Garchomp Earthquake with ${survive.best.hpEV} HP / ${survive.best.defEV} Def (${survive.best.worstCasePct.toFixed(1)}% max roll)`);
+  else ok(`Incineroar survives Life Orb Garchomp Earthquake with ${survive.best.hpSP} HP / ${survive.best.defSP} Def (${survive.best.worstCasePct.toFixed(1)}% max roll)`);
 
-  const ko = minEVsToKO(chomp, incin, 'Earthquake', format, field, { guaranteed: false });
-  ok(ko ? `Garchomp needs ${ko.atkEV} Atk EVs for a chance to OHKO the bulky Incineroar` : 'Earthquake cannot OHKO Incineroar');
+  const ko = minSPToKO(chomp, incin, 'Earthquake', format, field, { guaranteed: false });
+  ok(ko ? `Garchomp needs ${ko.atkSP} Atk points for a chance to OHKO the bulky Incineroar` : 'Earthquake cannot OHKO Incineroar');
 
-  const speed = minEVsToOutspeed(bare, 100, format);
+  const speed = minSPToOutspeed(bare, 100, format);
   if (!speed.withCurrentNature) fail('no speed solution for a reachable benchmark');
-  else ok(`Incineroar needs ${speed.withCurrentNature.evs} Spe EVs to pass 100 Speed (reaches ${speed.withCurrentNature.speed})`);
+  else ok(`Incineroar needs ${speed.withCurrentNature.sp} Spe points to pass 100 Speed (reaches ${speed.withCurrentNature.speed})`);
+
+  // The grid the chart draws must agree with the solver and be monotonic: more
+  // points can never mean fewer hits survived.
+  const grid = survivalGrid({ defender: bare, attacker: chomp, move: 'Earthquake', format, field });
+  let monotonic = true;
+  for (let hp = 0; hp < MAX_SP_PER_STAT; hp++) {
+    for (let d = 0; d < MAX_SP_PER_STAT; d++) {
+      if (grid.cells[hp + 1][d].hitsToKO < grid.cells[hp][d].hitsToKO) monotonic = false;
+      if (grid.cells[hp][d + 1].hitsToKO < grid.cells[hp][d].hitsToKO) monotonic = false;
+    }
+  }
+  if (!monotonic) fail('survival grid is not monotonic in Stat Points');
+  else ok(`survival grid ${MAX_SP_PER_STAT + 1}x${MAX_SP_PER_STAT + 1} is monotonic`);
+
+  const solved = grid.cells[survive.best!.hpSP][survive.best!.defSP];
+  if (solved.hitsToKO < 2) fail('grid disagrees with the cheapest surviving spread');
+  else ok('grid and solver agree on the cheapest surviving spread');
 }
 
 console.log('\n=== Showdown import/export ===');
@@ -178,12 +252,12 @@ console.log('\n=== Showdown import/export ===');
     if (toID(a.species) !== toID(b.species)) fail(`species mismatch ${a.species} → ${b.species}`);
     if (toID(a.item) !== toID(b.item)) fail(`item mismatch ${a.item} → ${b.item}`);
     if (a.nature !== b.nature) fail(`nature mismatch ${a.nature} → ${b.nature}`);
-    if (evTotal(a.evs) !== evTotal(b.evs)) fail(`EV mismatch on ${a.species}`);
+    if (spTotal(a.sp) !== spTotal(b.sp)) fail(`Stat Point mismatch on ${a.species}`);
     if (a.moves.filter(Boolean).join() !== b.moves.filter(Boolean).join()) fail(`move mismatch on ${a.species}`);
   }
   if (!failures) ok('round trip preserved species, item, nature, EVs and moves');
 
-  const paste = `Mega Charizard Y\nAbility: Blaze\nLevel: 50\nEVs: 4 HP / 252 SpA / 252 Spe\nModest Nature\n- Heat Wave\n- Protect`;
+  const paste = `Mega Charizard Y\nAbility: Blaze\nLevel: 50\nSP: 2 HP / 32 SpA / 32 Spe\nModest Nature\n- Heat Wave\n- Protect`;
   const mega = importTeam(paste);
   if (mega.sets[0]?.species !== 'Charizard') fail('Mega paste did not fold back to the base species');
   else if (toID(mega.sets[0].item) !== 'charizarditey') fail('Mega paste did not infer the stone');

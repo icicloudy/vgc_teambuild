@@ -67,9 +67,12 @@ the full calc lines.
 **Threat report** — each threat ranked by pressure (how badly it beats you, weighted by how
 common it is), with who OHKOes it, who it OHKOes, and your best answer.
 
-**EV optimizer** — the part that saves the most time. Pick a threat and a move and it solves
-for the cheapest spread that survives it, the minimum Attack investment that secures a KO, or
-the Speed EVs (and nature) needed to outrun a benchmark. One click applies it to the set.
+**Stat Point optimizer** — the part that saves the most time, built around a threshold map.
+Pick a threat and a move and it plots the KO boundary across every split of points between HP
+and the relevant defence: 33 x 33 real calculations, so the staircase you see is the actual
+threshold, not an interpolation. Hover any square for its numbers, click to apply it. Below the
+map it lists the cheapest spreads that survive, and the other two modes solve the minimum
+investment that secures a KO and the Speed points (and nature) to outrun a benchmark.
 
 **Speed tiers** — your team laid against the metagame with boosts, Tailwind, weather
 abilities, paralysis, Choice Scarf and Trick Room inversion, plus what share of the field
@@ -95,6 +98,9 @@ Regulation data lives in `src/data/formats.ts`. Reg M-B (June 17 – September 2
 default:
 
 - Doubles, bring 6 / pick 4, every Pokémon set to Level 50
+- Stat Points, not EVs or IVs: 66 to spend, at most 32 in one stat, 1 point = exactly +1 stat.
+  Every Pokémon behaves as though it had 31 IVs, so IVs are not modelled at all. Natures remain
+  and still scale a stat by ±10%.
 - Species Clause (no two with the same Pokédex number) and Item Clause
 - Several Mega Stones may be carried, but only one Pokémon Mega Evolves per battle
 - No Restricted, Legendary, Mythical, Paradox or Treasures of Ruin Pokémon
@@ -121,6 +127,13 @@ tells you where it is guessing:
 - **Damage** — `@smogon/calc` on Gen 9 mechanics, with Mega formes applied as species
   overrides. Spread reduction, weather, terrain, screens, Helping Hand, Friend Guard,
   Intimidate, items and abilities all behave as they do in the calculator you already trust.
+  The calculator predates Stat Points and rebuilds stats from EVs/IVs whenever it clones a
+  Pokémon, so a spread is fed to it as synthetic base stats — the exact inverse of the level-50
+  stat formula, checked both ways by `npm run check`.
+- **One assumption is not verifiable offline**: whether Stat Points are added before or after
+  the Nature multiplier. Champions states 1 point is exactly +1 stat, which only holds if the
+  points come after, so that is what `statAt` in `src/engine/stats.ts` does — isolated to one
+  function if it ever turns out otherwise.
 - **Regulation rules** — from the public Reg M-A / M-B announcements. Reliable, and enforced
   as hard errors.
 - **The species roster** — *approximate*. Champions ships a curated roster (208 species and

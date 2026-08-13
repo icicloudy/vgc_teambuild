@@ -282,10 +282,10 @@ function Combatant({
 
       <div className="stat-strip">
         {(['hp', 'atk', 'def', 'spa', 'spd', 'spe'] as const).map((s) => (
-          <span key={s} title={`${set.evs[s] ?? 0} EVs`}>
+          <span key={s} title={`${set.sp[s] ?? 0} Stat Points`}>
             <em>{s.toUpperCase()}</em>
             {stats?.[s] ?? 0}
-            <i className="stat-ev">{set.evs[s] ? `+${set.evs[s]}` : ''}</i>
+            <i className="stat-ev">{set.sp[s] ? `+${set.sp[s]}` : ''}</i>
           </span>
         ))}
       </div>

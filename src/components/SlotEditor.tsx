@@ -7,7 +7,7 @@ import {
 } from '../data/dex';
 import { CONFIDENCE_LABEL, legalMegas, rosterConfidence, speciesCatalogue } from '../data/roster';
 import { displayName } from '../engine/calc';
-import { MAX_EV_TOTAL, evTotal, resolveForm } from '../engine/stats';
+import { MAX_SP_PER_STAT, MAX_SP_TOTAL, computeStats, resolveForm, spTotal } from '../engine/stats';
 import { useActiveTeam, useFormat, useStore } from '../store';
 import { Combobox, Field, Pill, Section, Sprite, StatBar, TypeBadge } from './common';
 import type { ComboOption } from './common';
@@ -110,38 +110,26 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
 
   const form = useMemo(() => (member ? resolveForm(member, format) : null), [member, format]);
 
-  const stats = useMemo(() => {
-    const out = {} as Record<StatID, number>;
-    if (!form || !member) return out;
-    for (const s of STATS) {
-      const base = form.baseStats[s];
-      const iv = member.ivs[s] ?? 31;
-      const ev = member.evs[s] ?? 0;
-      out[s] = s === 'hp'
-        ? Math.floor(((2 * base + iv + Math.floor(ev / 4)) * member.level) / 100) + member.level + 10
-        : Math.floor(
-            (Math.floor(((2 * base + iv + Math.floor(ev / 4)) * member.level) / 100) + 5) *
-            natureModifier(member.nature, s),
-          );
-    }
-    return out;
-  }, [form, member]);
+  const stats = useMemo(
+    () => (member ? computeStats(member, format) : ({} as Record<StatID, number>)),
+    [member, format],
+  );
 
   if (!member) return null;
 
   const slotIssues = issues.filter((i) => i.slot === index);
   const megaOptions = legalMegas(member.species, format);
   const confidence = rosterConfidence(member.species, format, rosterOverride);
-  const spent = evTotal(member.evs);
-  const remaining = MAX_EV_TOTAL - spent;
+  const spent = spTotal(member.sp);
+  const remaining = MAX_SP_TOTAL - spent;
 
-  const setEV = (stat: StatID, raw: number) => {
-    const value = Math.max(0, Math.min(252, raw));
-    update(index, { evs: { ...member.evs, [stat]: value } });
-  };
-  const setIV = (stat: StatID, raw: number) => {
-    const value = Math.max(0, Math.min(31, raw));
-    update(index, { ivs: { ...member.ivs, [stat]: value } });
+  const setSP = (stat: StatID, raw: number) => {
+    const held = member.sp[stat] ?? 0;
+    // Never let a drag push the team over budget: cap at what is free plus this
+    // stat's own points.
+    const ceiling = Math.min(MAX_SP_PER_STAT, held + Math.max(0, remaining));
+    const value = Math.max(0, Math.min(ceiling, Math.round(raw)));
+    update(index, { sp: { ...member.sp, [stat]: value } });
   };
 
   return (
@@ -321,68 +309,68 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
         </Section>
 
         <Section
-          title="Spread"
+          title="Stat Points"
           subtitle={
             <>
-              <strong className={remaining < 0 ? 'text-error' : ''}>{remaining}</strong> EVs left
-              {remaining >= 4 && ' — unspent EVs are free stats'}
+              <strong className={remaining < 0 ? 'text-error' : ''}>{remaining}</strong>
+              {' '}of {MAX_SP_TOTAL} left · max {MAX_SP_PER_STAT} per stat
+              {remaining > 0 && ' — unspent points are free stats'}
             </>
           }
           actions={
             <div className="row-actions">
-              <button className="btn btn-sm" onClick={() => update(index, { evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } })}>
-                Clear EVs
-              </button>
               <button
                 className="btn btn-sm"
-                title="Set every IV to 31"
-                onClick={() => update(index, { ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 } })}
+                onClick={() => update(index, { sp: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } })}
               >
-                Max IVs
+                Clear
               </button>
             </div>
           }
         >
-          <div className="ev-table">
-            <div className="ev-head">
-              <span>Stat</span><span>Base</span><span>EVs</span><span /><span>IV</span><span>Total</span>
+          <div className="sp-table">
+            <div className="sp-head">
+              <span>Stat</span><span>Base</span><span>SP</span><span /><span>Total</span>
             </div>
             {STATS.map((stat) => {
               const mod = natureModifier(member.nature, stat);
+              const spent = member.sp[stat] ?? 0;
+              // A stat can only take what is left plus what it already holds.
+              const ceiling = Math.min(MAX_SP_PER_STAT, spent + Math.max(0, remaining));
               return (
-                <div key={stat} className="ev-row">
-                  <span className={`ev-name ${mod > 1 ? 'nat-up' : mod < 1 ? 'nat-down' : ''}`}>
+                <div key={stat} className="sp-row">
+                  <span className={`sp-name ${mod > 1 ? 'nat-up' : mod < 1 ? 'nat-down' : ''}`}>
                     {STAT_NAMES[stat]}
                     {mod > 1 ? '+' : mod < 1 ? '−' : ''}
                   </span>
-                  <span className="ev-base">{form?.baseStats[stat]}</span>
+                  <span className="sp-base">{form?.baseStats[stat]}</span>
                   <input
-                    className="ev-num"
+                    className="sp-num"
                     type="number"
                     min={0}
-                    max={252}
-                    step={4}
-                    value={member.evs[stat] ?? 0}
-                    onChange={(e) => setEV(stat, Number(e.target.value))}
+                    max={MAX_SP_PER_STAT}
+                    value={spent}
+                    onChange={(e) => setSP(stat, Number(e.target.value))}
                   />
-                  <input
-                    className="ev-slider"
-                    type="range"
-                    min={0}
-                    max={252}
-                    step={4}
-                    value={member.evs[stat] ?? 0}
-                    onChange={(e) => setEV(stat, Number(e.target.value))}
-                  />
-                  <input
-                    className="iv-num"
-                    type="number"
-                    min={0}
-                    max={31}
-                    value={member.ivs[stat] ?? 31}
-                    onChange={(e) => setIV(stat, Number(e.target.value))}
-                  />
-                  <span className="ev-total">
+                  <span className="sp-slider-wrap">
+                    <input
+                      className="sp-slider"
+                      type="range"
+                      min={0}
+                      max={MAX_SP_PER_STAT}
+                      value={spent}
+                      onChange={(e) => setSP(stat, Number(e.target.value))}
+                    />
+                    {/* Where the budget runs out, so you can see the ceiling while dragging. */}
+                    {ceiling < MAX_SP_PER_STAT && (
+                      <span
+                        className="sp-cap"
+                        style={{ left: `${(ceiling / MAX_SP_PER_STAT) * 100}%` }}
+                        title={`Budget runs out at ${ceiling}`}
+                      />
+                    )}
+                  </span>
+                  <span className="sp-total">
                     <strong>{stats[stat]}</strong>
                     <StatBar value={stats[stat]} max={stat === 'hp' ? 250 : 220} tone={stat} />
                   </span>

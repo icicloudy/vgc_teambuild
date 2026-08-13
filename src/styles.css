@@ -719,3 +719,56 @@ select:focus, input:focus, textarea:focus { outline: none; border-color: var(--a
   color: #fff; font-size: 20px;
 }
 .boot p { margin: 0; font-size: 13px; }
+
+/* ---------------- stat points ---------------- */
+
+.sp-table { display: flex; flex-direction: column; gap: 4px; }
+.sp-head, .sp-row {
+  display: grid;
+  grid-template-columns: 46px 34px 54px 1fr 116px;
+  gap: 8px; align-items: center;
+}
+.sp-head { font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-3); }
+.sp-name { font-weight: 600; font-size: 12px; }
+.sp-base { color: var(--text-3); font-size: 12px; text-align: right; }
+.sp-num { padding: 3px 6px; font-size: 12px; }
+.sp-slider-wrap { position: relative; display: flex; align-items: center; }
+.sp-slider { width: 100%; accent-color: var(--accent); }
+/* Where the remaining budget runs out on this stat's track. */
+.sp-cap {
+  position: absolute; top: 50%; width: 2px; height: 14px; margin-top: -7px;
+  background: var(--warn); opacity: .75; pointer-events: none; border-radius: 1px;
+}
+.sp-total { display: flex; align-items: center; gap: 6px; font-variant-numeric: tabular-nums; }
+.sp-total strong { min-width: 34px; text-align: right; }
+
+/* ---------------- survival map ---------------- */
+
+.survival { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; }
+.survival-legend { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.survival-key {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--text-2);
+}
+.survival-swatch {
+  width: 11px; height: 11px; border-radius: 2px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, .4);
+}
+.survival-swatch-out { background: #4a2b28; opacity: .18; }
+.survival-svg { width: 100%; max-width: 430px; height: auto; display: block; }
+.survival-tick { fill: var(--text-3); font-size: 9px; font-variant-numeric: tabular-nums; }
+.survival-axis { fill: var(--text-2); font-size: 10px; letter-spacing: .04em; }
+.survival-readout {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 10px;
+  background: var(--bg-2); border-radius: var(--radius-sm); padding: 7px 10px;
+}
+.survival-readout-head { font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.survival-readout-head em {
+  font-style: normal; font-weight: 400; color: var(--text-3); margin-left: 8px; font-size: 11px;
+}
+.survival-verdict { font-size: 12px; font-weight: 700; padding: 1px 8px; border-radius: 20px; }
+.survival-verdict.band-1 { background: #ff8a80; color: #2b0f0d; }
+.survival-verdict.band-2 { background: #cf5346; color: #fff; }
+.survival-verdict.band-3 { background: #8c3f36; color: #ffdad5; }
+.survival-verdict.band-4 { background: #4a2b28; color: #ffc9c2; }
+.survival-hint { margin: 0; line-height: 1.4; }

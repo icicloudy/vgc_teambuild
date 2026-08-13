@@ -1,7 +1,7 @@
 import type {
   CombatantState, DamageResult, FieldState, FormatRules, PokemonSet, ThreatSet,
 } from '../types';
-import { emptyEVs, maxIVs } from '../types';
+import { emptySP } from '../types';
 import { calcAllMoves, defaultCombatant, displayName } from './calc';
 import type { MoveDamage } from './calc';
 import { resolveForm } from './stats';
@@ -17,8 +17,7 @@ export function threatToSet(threat: ThreatSet, level: number): PokemonSet {
     ability: threat.ability,
     level,
     nature: threat.nature,
-    evs: { ...emptyEVs(), ...threat.evs },
-    ivs: { ...maxIVs(), ...(threat.ivs ?? {}) },
+    sp: { ...emptySP(), ...threat.sp },
     moves: [...threat.moves],
   };
 }

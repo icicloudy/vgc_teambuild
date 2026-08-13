@@ -58,6 +58,18 @@ const shot = async (name) => {
 
 checks.push(['build tab renders sets', (await page.locator('.move-slot').count()) === 4]);
 checks.push(['matchup preview computed', (await page.locator('.matchup-row').count()) > 0]);
+checks.push(['stat point editor renders', (await page.locator('.sp-row').count()) === 6]);
+
+// The survival map is the headline analysis tool; make sure it actually plots.
+const mapCells = await page.locator('.survival-svg rect').count();
+checks.push(['survival map plotted', mapCells > 1000]);
+// Every band present must be labelled, so the chart never reads by colour alone.
+// A single-band matchup is legitimate, so the floor is one key, not two.
+checks.push(['survival map bands are labelled', (await page.locator('.survival-key').count()) >= 1]);
+await page.locator('.survival-svg rect').nth(600).hover();
+await page.waitForTimeout(200);
+checks.push(['survival map reads out on hover', (await page.locator('.survival-verdict').count()) === 1]);
+await page.screenshot({ path: `${OUT}/00-survival-map.png`, clip: await page.locator('.survival').boundingBox() ?? undefined });
 await shot('01-build');
 
 // Mega chips

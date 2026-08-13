@@ -36,8 +36,7 @@ export function ThreatDbPanel() {
         item: set.item,
         ability: set.ability,
         nature: set.nature,
-        evs: set.evs,
-        ivs: set.ivs,
+        sp: set.sp,
         moves: set.moves.filter(Boolean),
         usage: 50,
         role: 'Custom',
@@ -110,7 +109,7 @@ export function ThreatDbPanel() {
                   <span className="threat-line">
                     @ {t.item || 'no item'} · {t.ability} · {t.nature}
                   </span>
-                  <span className="threat-line muted">{formatEVs(t)}</span>
+                  <span className="threat-line muted">{formatSP(t)}</span>
                   <div className="threat-moves">
                     {t.moves.map((m) => <span key={m} className="threat-move">{m}</span>)}
                   </div>
@@ -145,12 +144,12 @@ export function ThreatDbPanel() {
   );
 }
 
-function formatEVs(t: ThreatSet): string {
+function formatSP(t: ThreatSet): string {
   const labels: Record<string, string> = {
     hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe',
   };
-  const parts = Object.entries(t.evs)
+  const parts = Object.entries(t.sp)
     .filter(([, v]) => v)
     .map(([k, v]) => `${v} ${labels[k]}`);
-  return parts.length ? parts.join(' / ') : 'no EVs';
+  return parts.length ? `${parts.join(' / ')} SP` : 'no Stat Points';
 }

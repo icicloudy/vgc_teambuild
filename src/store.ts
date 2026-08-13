@@ -1,13 +1,14 @@
 import { create } from 'zustand';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import type {
-  CombatantState, FieldState, PokemonSet, Team, ThreatSet,
+  CombatantState, FieldState, PokemonSet, StatsTable, Team, ThreatSet,
 } from './types';
+import { emptySP } from './types';
 import { DEFAULT_FORMAT_ID, getFormat } from './data/formats';
 import { BUILT_IN_THREATS } from './data/threats';
 import type { RosterOverride } from './data/roster';
 import { defaultCombatant, defaultField } from './engine/calc';
-import { emptySet, newId } from './engine/showdown';
+import { emptySet, evsToSP, newId } from './engine/showdown';
 import { getSpecies } from './data/dex';
 
 export type TabId =
@@ -228,7 +229,23 @@ export const useStore = create<AppState>()(
     }),
     {
       name: 'champions-teambuilder',
-      version: 1,
+      version: 2,
+      migrate: (state, from) => {
+        // v1 stored EVs and IVs. Champions uses Stat Points, so convert saved teams
+        // rather than dropping them.
+        if (from >= 2) return state as AppState;
+        const s = state as { teams?: Team[] };
+        for (const team of s.teams ?? []) {
+          for (const member of team.members ?? []) {
+            const legacy = member as unknown as { evs?: Partial<StatsTable>; ivs?: unknown };
+            if (legacy.evs && !member.sp) member.sp = evsToSP(legacy.evs);
+            if (!member.sp) member.sp = emptySP();
+            delete legacy.evs;
+            delete legacy.ivs;
+          }
+        }
+        return state as AppState;
+      },
       storage: createJSONStorage(safeStorage),
       partialize: (s) => ({
         teams: s.teams,

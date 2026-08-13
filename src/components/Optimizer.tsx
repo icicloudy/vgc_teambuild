@@ -3,17 +3,18 @@ import type { PokemonSet, StatID } from '../types';
 import { getMove } from '../data/dex';
 import { bestMove, displayName } from '../engine/calc';
 import { threatToSet } from '../engine/matrix';
-import { minEVsToKO, minEVsToOutspeed, minEVsToSurvive } from '../engine/optimizer';
+import { minSPToKO, minSPToOutspeed, minSPToSurvive } from '../engine/optimizer';
 import { computeSpeed, defaultScenario } from '../engine/speed';
 import { resolveForm } from '../engine/stats';
 import { useEnabledThreats, useFormat, useStore } from '../store';
 import { Section } from './common';
+import { SurvivalMap } from './SurvivalMap';
 
 type Mode = 'survive' | 'ko' | 'speed';
 
 /**
- * Turns "I want to live a Mega Metagross Iron Head" into an actual EV spread.
- * Every result is applied straight to the set.
+ * Turns "I want to live a Mega Metagross Iron Head" into an actual Stat Point
+ * spread. Every result is applied straight to the set.
  */
 export function OptimizerPanel({ member, index }: { member: PokemonSet; index: number }) {
   const format = useFormat();
@@ -63,35 +64,34 @@ export function OptimizerPanel({ member, index }: { member: PokemonSet; index: n
 
   const survive = useMemo(() => {
     if (mode !== 'survive' || !threatSet || !activeMove) return null;
-    return minEVsToSurvive({
+    return minSPToSurvive({
       defender: member, attacker: threatSet, move: activeMove, format, field, hits,
     });
   }, [mode, threatSet, activeMove, member, format, field, hits]);
 
   const ko = useMemo(() => {
     if (mode !== 'ko' || !threatSet || !activeMove) return null;
-    return minEVsToKO(member, threatSet, activeMove, format, field, { guaranteed, hits });
+    return minSPToKO(member, threatSet, activeMove, format, field, { guaranteed, hits });
   }, [mode, threatSet, activeMove, member, format, field, guaranteed, hits]);
 
   const speed = useMemo(() => {
     if (mode !== 'speed' || !threatSet) return null;
     const target = computeSpeed(threatSet, format, defaultScenario()).final;
-    return { target, result: minEVsToOutspeed(member, target, format) };
+    return { target, result: minSPToOutspeed(member, target, format) };
   }, [mode, threatSet, member, format]);
 
-  const applyEVs = (patch: Partial<Record<StatID, number>>, nature?: string) => {
+  const applySP = (patch: Partial<Record<StatID, number>>, nature?: string) => {
     update(index, {
-      evs: { ...member.evs, ...patch },
+      sp: { ...member.sp, ...patch },
       ...(nature ? { nature } : {}),
     });
   };
 
   const category = getMove(activeMove)?.category;
-  const defStat: StatID = category === 'Special' ? 'spd' : 'def';
 
   return (
     <Section
-      title="EV optimizer"
+      title="Stat Point optimizer"
       subtitle="Solve a benchmark, then apply it to the spread"
     >
       <div className="seg">
@@ -152,33 +152,47 @@ export function OptimizerPanel({ member, index }: { member: PokemonSet; index: n
 
       {/* ---------------- survive ---------------- */}
       {mode === 'survive' && survive && (
-        survive.impossible || !survive.best ? (
+        survive.impossible ? (
           <p className="opt-note text-error">
-            {threat?.name} {activeMove} cannot be survived even with 252/252 —
-            you need a resist, Intimidate, a screen or a Focus Sash.
+            {threat?.name} {activeMove} cannot be survived with any split of your remaining
+            points — you need a resist, Intimidate, a screen or a Focus Sash.
           </p>
         ) : (
           <>
-            <p className="opt-note">
-              Cheapest spread that lives {hits > 1 ? `${hits} hits of ` : ''}
-              <strong>{threat?.name} {activeMove}</strong>:
-            </p>
-            <div className="opt-options">
-              {survive.options.slice(0, 6).map((o) => (
-                <button
-                  key={`${o.hpEV}-${o.defEV}`}
-                  className="opt-option"
-                  onClick={() => applyEVs({ hp: o.hpEV, [defStat]: o.defEV } as Partial<Record<StatID, number>>)}
-                >
-                  <span className="opt-spread">
-                    {o.hpEV} HP / {o.defEV} {defStat === 'def' ? 'Def' : 'SpD'}
-                  </span>
-                  <span className="muted small">
-                    {o.total} EVs · worst roll {o.worstCasePct.toFixed(1)}%
-                  </span>
-                </button>
-              ))}
-            </div>
+            <SurvivalMap
+              grid={survive.grid}
+              current={member.sp}
+              attackerLabel={threat?.name ?? ''}
+              moveName={activeMove}
+              onPick={({ hp, def }) =>
+                applySP({ hp, [survive.defStat]: def } as Partial<Record<StatID, number>>)}
+            />
+            {survive.best && (
+              <>
+                <p className="opt-note">
+                  Cheapest spread that lives {hits > 1 ? `${hits} hits of ` : ''}
+                  <strong>{threat?.name} {activeMove}</strong>:
+                </p>
+                <div className="opt-options">
+                  {survive.options.slice(0, 5).map((o) => (
+                    <button
+                      key={`${o.hpSP}-${o.defSP}`}
+                      className="opt-option"
+                      onClick={() => applySP(
+                        { hp: o.hpSP, [survive.defStat]: o.defSP } as Partial<Record<StatID, number>>,
+                      )}
+                    >
+                      <span className="opt-spread">
+                        {o.hpSP} HP / {o.defSP} {survive.defStat === 'def' ? 'Def' : 'SpD'}
+                      </span>
+                      <span className="muted small">
+                        {o.total} points · worst roll {o.worstCasePct.toFixed(1)}%
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )
       )}
@@ -188,15 +202,15 @@ export function OptimizerPanel({ member, index }: { member: PokemonSet; index: n
         ko ? (
           <>
             <p className="opt-note">
-              <strong>{ko.atkEV}</strong> {category === 'Special' ? 'SpA' : 'Atk'} EVs
+              <strong>{ko.atkSP}</strong> {category === 'Special' ? 'SpA' : 'Atk'} points
               {guaranteed ? ' guarantee' : ' give a chance at'} the OHKO on {threat?.name}
               {' '}({ko.minPct.toFixed(1)}–{ko.maxPct.toFixed(1)}%).
             </p>
             <button
               className="btn btn-sm btn-primary"
-              onClick={() => applyEVs({ [category === 'Special' ? 'spa' : 'atk']: ko.atkEV } as Partial<Record<StatID, number>>)}
+              onClick={() => applySP({ [category === 'Special' ? 'spa' : 'atk']: ko.atkSP } as Partial<Record<StatID, number>>)}
             >
-              Apply {ko.atkEV} EVs
+              Apply {ko.atkSP} points
             </button>
           </>
         ) : (
@@ -218,28 +232,28 @@ export function OptimizerPanel({ member, index }: { member: PokemonSet; index: n
             {speed.result.withCurrentNature ? (
               <button
                 className="opt-option"
-                onClick={() => applyEVs({ spe: speed.result.withCurrentNature!.evs })}
+                onClick={() => applySP({ spe: speed.result.withCurrentNature!.sp })}
               >
-                <span className="opt-spread">{speed.result.withCurrentNature.evs} Spe EVs</span>
+                <span className="opt-spread">{speed.result.withCurrentNature.sp} Spe points</span>
                 <span className="muted small">
                   keeps {member.nature} · reaches {speed.result.withCurrentNature.speed}
                 </span>
               </button>
             ) : (
               <p className="opt-note text-error">
-                Cannot outrun it with {member.nature} even at 252 Spe EVs.
+                Cannot outrun it with {member.nature} even with every spare point in Speed.
               </p>
             )}
             {speed.result.withPositiveNature && (
               <button
                 className="opt-option"
-                onClick={() => applyEVs(
-                  { spe: speed.result.withPositiveNature!.evs },
+                onClick={() => applySP(
+                  { spe: speed.result.withPositiveNature!.sp },
                   speed.result.withPositiveNature!.nature,
                 )}
               >
                 <span className="opt-spread">
-                  {speed.result.withPositiveNature.evs} Spe EVs + {speed.result.withPositiveNature.nature}
+                  {speed.result.withPositiveNature.sp} Spe points + {speed.result.withPositiveNature.nature}
                 </span>
                 <span className="muted small">
                   reaches {speed.result.withPositiveNature.speed} — frees up EVs elsewhere
@@ -253,19 +267,19 @@ export function OptimizerPanel({ member, index }: { member: PokemonSet; index: n
       {threat && (
         <p className="opt-foot muted small">
           Reference set: {displayName(resolveForm(threatToSet(threat, format.level), format)?.species.name ?? threat.species)}
-          {' @ '}{threat.item || 'no item'} · {threat.nature} · {formatEVs(threat.evs)}
+          {' @ '}{threat.item || 'no item'} · {threat.nature} · {formatSP(threat.sp)}
         </p>
       )}
     </Section>
   );
 }
 
-function formatEVs(evs: Partial<Record<StatID, number>>): string {
+function formatSP(sp: Partial<Record<StatID, number>>): string {
   const labels: Record<string, string> = {
     hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe',
   };
-  return Object.entries(evs)
+  return Object.entries(sp)
     .filter(([, v]) => v)
     .map(([k, v]) => `${v} ${labels[k]}`)
-    .join(' / ');
+    .join(' / ') || 'no points';
 }

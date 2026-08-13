@@ -1,31 +1,55 @@
 import type { CombatantState, FieldState, FormatRules, PokemonSet, StatID } from '../types';
-import { calcDamage, defaultCombatant, maxHPOf, statsOf } from './calc';
-import { MAX_EV_SINGLE, MAX_EV_TOTAL, evTotal, resolveForm, statAt } from './stats';
+import { calcDamage, defaultCombatant, maxHPOf } from './calc';
+import {
+  MAX_SP_PER_STAT, MAX_SP_TOTAL, baseStatValue, resolveForm, spTotal,
+} from './stats';
 import { computeSpeed, defaultScenario } from './speed';
 import type { SpeedScenario } from './speed';
 import { NATURES, getMove, natureModifier } from '../data/dex';
 
-const STEP = 4;
+function withSP(set: PokemonSet, patch: Partial<Record<StatID, number>>): PokemonSet {
+  return { ...set, sp: { ...set.sp, ...patch } };
+}
 
-function withEVs(set: PokemonSet, patch: Partial<Record<StatID, number>>): PokemonSet {
-  return { ...set, evs: { ...set.evs, ...patch } };
+function inferCategory(move: string): 'Physical' | 'Special' | 'Status' {
+  return (getMove(move)?.category ?? 'Status') as 'Physical' | 'Special' | 'Status';
+}
+
+/** Stat Points still free once every other stat keeps what it already has. */
+export function budgetFor(set: PokemonSet, ...reserved: StatID[]): number {
+  const spentElsewhere = spTotal(set.sp) - reserved.reduce((n, s) => n + (set.sp[s] ?? 0), 0);
+  return Math.max(0, MAX_SP_TOTAL - spentElsewhere);
 }
 
 /* ------------------------------------------------------------------ *
- * Bulk: minimum investment to survive a hit
+ * Survival grid — HP × defence, the whole space at once
  * ------------------------------------------------------------------ */
 
-export interface SurviveOption {
-  hpEV: number;
-  defEV: number;
-  total: number;
-  worstCasePct: number;
-  /** Damage taken at the highest roll, in HP. */
-  worstCaseDamage: number;
+export interface SurvivalCell {
+  hpSP: number;
+  defSP: number;
+  /** Hits at the highest damage roll before this Pokémon faints. 99 = never. */
+  hitsToKO: number;
+  /** Damage taken at the highest roll, as a share of max HP. */
+  worstPct: number;
   maxHP: number;
+  /** Whether the pair fits inside the Stat Point budget. */
+  affordable: boolean;
 }
 
-export interface SurviveQuery {
+export interface SurvivalGrid {
+  cells: SurvivalCell[][];
+  /** Which defensive stat the attack is measured against. */
+  defStat: 'def' | 'spd';
+  category: 'Physical' | 'Special' | 'Status';
+  budget: number;
+  /** Cheapest affordable pair for each hit count, keyed by hitsToKO. */
+  cheapest: Map<number, SurvivalCell>;
+  /** True when the move does no damage at all. */
+  inert: boolean;
+}
+
+export interface SurvivalQuery {
   defender: PokemonSet;
   attacker: PokemonSet;
   move: string;
@@ -33,103 +57,161 @@ export interface SurviveQuery {
   field: FieldState;
   attackerState?: CombatantState;
   defenderState?: CombatantState;
-  /** Number of hits to live through (1 = survive one hit at full HP). */
-  hits?: number;
-  /** Leave the rest of the spread alone and only spend what is still free. */
-  budget?: number;
 }
 
-export function minEVsToSurvive(q: SurviveQuery): {
-  options: SurviveOption[];
-  best: SurviveOption | null;
-  category: 'Physical' | 'Special' | 'Status';
-  impossible: boolean;
-} {
+/**
+ * Damage across every (HP, defence) Stat Point pair.
+ *
+ * 33 x 33 is small enough to evaluate exhaustively, which is what makes the
+ * threshold map honest: no interpolation, every boundary is a real calculation.
+ */
+export function survivalGrid(q: SurvivalQuery): SurvivalGrid {
   const {
     defender, attacker, move, format, field,
     attackerState = defaultCombatant(), defenderState = defaultCombatant(),
   } = q;
-  const hits = q.hits ?? 1;
+
+  const category = inferCategory(move);
+  const defStat: 'def' | 'spd' = category === 'Special' ? 'spd' : 'def';
+  const budget = budgetFor(defender, 'hp', defStat);
+  const cheapest = new Map<number, SurvivalCell>();
 
   const probe = calcDamage(attacker, defender, move, format, field, attackerState, defenderState);
-  const category = inferCategory(move);
-  if (!probe || probe.max === 0) {
-    return { options: [], best: null, category, impossible: false };
-  }
-  const defStat: StatID = category === 'Special' ? 'spd' : 'def';
+  const inert = !probe || probe.max === 0;
 
-  const spentElsewhere = evTotal(defender.evs) - (defender.evs.hp ?? 0) - (defender.evs[defStat] ?? 0);
-  const budget = Math.min(q.budget ?? MAX_EV_TOTAL - spentElsewhere, MAX_EV_TOTAL);
+  const cells: SurvivalCell[][] = [];
+  for (let hpSP = 0; hpSP <= MAX_SP_PER_STAT; hpSP++) {
+    const row: SurvivalCell[] = [];
+    for (let defSP = 0; defSP <= MAX_SP_PER_STAT; defSP++) {
+      const candidate = withSP(defender, { hp: hpSP, [defStat]: defSP } as Partial<Record<StatID, number>>);
+      const maxHP = maxHPOf(candidate, format);
+      const affordable = hpSP + defSP <= budget;
 
-  const survives = (hpEV: number, defEV: number): { ok: boolean; pct: number; dmg: number; maxHP: number } => {
-    const candidate = withEVs(defender, { hp: hpEV, [defStat]: defEV } as Partial<Record<StatID, number>>);
-    const res = calcDamage(attacker, candidate, move, format, field, attackerState, defenderState);
-    const maxHP = maxHPOf(candidate, format);
-    if (!res) return { ok: false, pct: 100, dmg: maxHP, maxHP };
-    const dmg = res.max * hits;
-    return { ok: dmg < maxHP, pct: (dmg / maxHP) * 100, dmg, maxHP };
-  };
+      let hitsToKO = 99;
+      let worstPct = 0;
+      if (!inert) {
+        const res = calcDamage(
+          attacker, candidate, move, format, field, attackerState, defenderState,
+        );
+        if (res && res.max > 0) {
+          hitsToKO = Math.ceil(maxHP / res.max);
+          worstPct = (res.max / maxHP) * 100;
+        }
+      }
 
-  const options: SurviveOption[] = [];
-  for (let hpEV = 0; hpEV <= MAX_EV_SINGLE; hpEV += STEP) {
-    if (hpEV > budget) break;
-    // Damage taken falls monotonically as the defensive EV rises, so binary search.
-    let lo = 0;
-    let hi = Math.min(MAX_EV_SINGLE, budget - hpEV);
-    if (hi < 0) break;
-    if (!survives(hpEV, hi).ok) continue;
-    while (lo < hi) {
-      const mid = Math.floor((lo + hi) / 2 / STEP) * STEP;
-      if (survives(hpEV, mid).ok) hi = mid;
-      else lo = mid + STEP;
+      const cell: SurvivalCell = { hpSP, defSP, hitsToKO, worstPct, maxHP, affordable };
+      row.push(cell);
+
+      if (affordable) {
+        const best = cheapest.get(hitsToKO);
+        const cost = hpSP + defSP;
+        if (!best || cost < best.hpSP + best.defSP) cheapest.set(hitsToKO, cell);
+      }
     }
-    const final = survives(hpEV, lo);
-    options.push({
-      hpEV,
-      defEV: lo,
-      total: hpEV + lo,
-      worstCasePct: final.pct,
-      worstCaseDamage: final.dmg,
-      maxHP: final.maxHP,
-    });
+    cells.push(row);
   }
 
-  if (!options.length) {
-    return { options: [], best: null, category, impossible: true };
-  }
-  // Keep only Pareto-efficient spreads, cheapest first.
-  const sorted = [...options].sort((a, b) => a.total - b.total || b.hpEV - a.hpEV);
-  const seen = new Set<number>();
-  const pareto = sorted.filter((o) => {
-    if (seen.has(o.total)) return false;
-    seen.add(o.total);
-    return true;
-  });
-  return { options: pareto.slice(0, 12), best: pareto[0], category, impossible: false };
+  return { cells, defStat, category, budget, cheapest, inert };
 }
 
-function inferCategory(move: string): 'Physical' | 'Special' | 'Status' {
-  return (getMove(move)?.category ?? 'Status') as 'Physical' | 'Special' | 'Status';
+/** The distinct hit counts present in a grid, ascending. */
+export function gridBands(grid: SurvivalGrid): number[] {
+  const seen = new Set<number>();
+  for (const row of grid.cells) for (const cell of row) seen.add(cell.hitsToKO);
+  return [...seen].sort((a, b) => a - b);
 }
 
 /* ------------------------------------------------------------------ *
- * Power: minimum investment to secure a KO
+ * Single-answer solvers
  * ------------------------------------------------------------------ */
 
+export interface SurviveOption {
+  hpSP: number;
+  defSP: number;
+  total: number;
+  worstCasePct: number;
+  maxHP: number;
+}
+
+/**
+ * Cheapest spreads that live `hits` hits, one per total cost, cheapest first.
+ * Derived from the same grid the chart draws, so the two can never disagree.
+ */
+export function minSPToSurvive(q: SurviveQuery): {
+  options: SurviveOption[];
+  best: SurviveOption | null;
+  category: 'Physical' | 'Special' | 'Status';
+  defStat: 'def' | 'spd';
+  impossible: boolean;
+  grid: SurvivalGrid;
+} {
+  const hits = q.hits ?? 1;
+  const grid = survivalGrid(q);
+
+  const survivors: SurviveOption[] = [];
+  for (const row of grid.cells) {
+    for (const cell of row) {
+      if (!cell.affordable) continue;
+      if (cell.hitsToKO <= hits) continue; // faints on hit number `hits` or earlier
+      survivors.push({
+        hpSP: cell.hpSP,
+        defSP: cell.defSP,
+        total: cell.hpSP + cell.defSP,
+        worstCasePct: cell.worstPct * hits,
+        maxHP: cell.maxHP,
+      });
+    }
+  }
+
+  if (grid.inert) {
+    return {
+      options: [], best: null, category: grid.category, defStat: grid.defStat,
+      impossible: false, grid,
+    };
+  }
+  if (!survivors.length) {
+    return {
+      options: [], best: null, category: grid.category, defStat: grid.defStat,
+      impossible: true, grid,
+    };
+  }
+
+  // One entry per price point, favouring the HP-heavy pair at equal cost since HP
+  // helps against both attacking categories.
+  const byCost = new Map<number, SurviveOption>();
+  for (const o of survivors) {
+    const held = byCost.get(o.total);
+    if (!held || o.hpSP > held.hpSP) byCost.set(o.total, o);
+  }
+  const options = [...byCost.values()].sort((a, b) => a.total - b.total);
+  return {
+    options: options.slice(0, 8), best: options[0], category: grid.category,
+    defStat: grid.defStat, impossible: false, grid,
+  };
+}
+
+export interface SurviveQuery extends SurvivalQuery {
+  /** Number of hits to live through (1 = survive one hit at full HP). */
+  hits?: number;
+}
+
 export interface KOOption {
-  atkEV: number;
+  atkSP: number;
   minPct: number;
   maxPct: number;
   koText: string;
 }
 
-export function minEVsToKO(
+export function minSPToKO(
   attacker: PokemonSet,
   defender: PokemonSet,
   move: string,
   format: FormatRules,
   field: FieldState,
-  opts: { guaranteed?: boolean; hits?: number; attackerState?: CombatantState; defenderState?: CombatantState } = {},
+  opts: {
+    guaranteed?: boolean; hits?: number;
+    attackerState?: CombatantState; defenderState?: CombatantState;
+  } = {},
 ): KOOption | null {
   const guaranteed = opts.guaranteed ?? true;
   const hits = opts.hits ?? 1;
@@ -137,49 +219,34 @@ export function minEVsToKO(
   if (category === 'Status') return null;
   const atkStat: StatID = category === 'Special' ? 'spa' : 'atk';
   const maxHP = maxHPOf(defender, format);
+  const budget = Math.min(MAX_SP_PER_STAT, budgetFor(attacker, atkStat));
 
-  const test = (ev: number) => {
-    const candidate = withEVs(attacker, { [atkStat]: ev } as Partial<Record<StatID, number>>);
+  for (let sp = 0; sp <= budget; sp++) {
+    const candidate = withSP(attacker, { [atkStat]: sp } as Partial<Record<StatID, number>>);
     const res = calcDamage(
       candidate, defender, move, format, field, opts.attackerState, opts.defenderState,
     );
     if (!res) return null;
     const ok = guaranteed ? res.min * hits >= maxHP : res.max * hits >= maxHP;
-    return { ok, res };
-  };
-
-  const top = test(MAX_EV_SINGLE);
-  if (!top || !top.ok) return null;
-
-  let lo = 0;
-  let hi = MAX_EV_SINGLE;
-  while (lo < hi) {
-    const mid = Math.floor((lo + hi) / 2 / STEP) * STEP;
-    const t = test(mid);
-    if (t?.ok) hi = mid;
-    else lo = mid + STEP;
+    if (ok) {
+      return {
+        atkSP: sp,
+        minPct: res.minPct * hits,
+        maxPct: res.maxPct * hits,
+        koText: res.koText,
+      };
+    }
   }
-  const final = test(lo);
-  if (!final) return null;
-  return {
-    atkEV: lo,
-    minPct: final.res.minPct * hits,
-    maxPct: final.res.maxPct * hits,
-    koText: final.res.koText,
-  };
+  return null;
 }
 
-/* ------------------------------------------------------------------ *
- * Speed: minimum investment to outrun a benchmark
- * ------------------------------------------------------------------ */
-
 export interface SpeedOption {
-  evs: number;
+  sp: number;
   nature: string;
   speed: number;
 }
 
-export function minEVsToOutspeed(
+export function minSPToOutspeed(
   set: PokemonSet,
   targetSpeed: number,
   format: FormatRules,
@@ -187,13 +254,14 @@ export function minEVsToOutspeed(
 ): { withCurrentNature: SpeedOption | null; withPositiveNature: SpeedOption | null } {
   const form = resolveForm(set, format);
   if (!form) return { withCurrentNature: null, withPositiveNature: null };
+  const budget = Math.min(MAX_SP_PER_STAT, budgetFor(set, 'spe'));
 
   const trial = (nature: string): SpeedOption | null => {
-    for (let ev = 0; ev <= MAX_EV_SINGLE; ev += STEP) {
-      const candidate = { ...withEVs(set, { spe: ev }), nature };
+    for (let sp = 0; sp <= budget; sp++) {
+      const candidate = { ...withSP(set, { spe: sp }), nature };
       const speed = computeSpeed(candidate, format, scenario).final;
       if (scenario.trickRoom ? speed <= targetSpeed : speed > targetSpeed) {
-        return { evs: ev, nature, speed };
+        return { sp, nature, speed };
       }
     }
     return null;
@@ -202,8 +270,9 @@ export function minEVsToOutspeed(
   const current = trial(set.nature);
   let positive: SpeedOption | null = null;
   if (natureModifier(set.nature, 'spe') <= 1) {
-    const speedNature = NATURES.find((n) => natureModifier(n, 'spe') > 1 &&
-      natureModifier(n, 'spa') < 1) ?? 'Jolly';
+    const speedNature = NATURES.find(
+      (n) => natureModifier(n, 'spe') > 1 && natureModifier(n, 'spa') < 1,
+    ) ?? 'Jolly';
     positive = trial(speedNature);
   }
   return { withCurrentNature: current, withPositiveNature: positive };
@@ -216,49 +285,31 @@ export interface SpeedBenchmark {
   scenarioNote: string;
 }
 
-export function speedBenchmarks(
-  threats: PokemonSet[],
-  format: FormatRules,
-): SpeedBenchmark[] {
+export function speedBenchmarks(threats: PokemonSet[], format: FormatRules): SpeedBenchmark[] {
   const base = defaultScenario();
-  const out: SpeedBenchmark[] = [];
-  for (const t of threats) {
-    const s = computeSpeed(t, format, base);
-    out.push({
-      label: t.nickname || t.species,
-      speed: s.final,
-      scenarioNote: s.applied.length ? s.applied.join(' + ') : 'no modifiers',
-    });
-  }
-  return out.sort((a, b) => b.speed - a.speed);
+  return threats
+    .map((t) => {
+      const s = computeSpeed(t, format, base);
+      return {
+        label: t.nickname || t.species,
+        speed: s.final,
+        scenarioNote: s.applied.length ? s.applied.join(' + ') : 'no modifiers',
+      };
+    })
+    .sort((a, b) => b.speed - a.speed);
 }
 
-/** Quick reference: what a given base stat reaches at common investments. */
-export function statSpread(
-  baseStat: number,
+/** What a stat reaches with no points, and with every point it may hold. */
+export function statRange(
   stat: StatID,
+  baseStat: number,
   level: number,
-  natures: string[] = ['Modest', 'Adamant'],
-): { label: string; value: number }[] {
-  void natures;
-  return [
-    { label: '0 EV, neutral', value: statAt(stat, baseStat, 31, 0, level, 'Serious') },
-    { label: '252 EV, neutral', value: statAt(stat, baseStat, 31, 252, level, 'Serious') },
-    { label: '252 EV, boosting', value: statAt(stat, baseStat, 31, 252, level, boostingNature(stat)) },
-  ];
-}
-
-function boostingNature(stat: StatID): string {
-  const map: Record<string, string> = {
-    atk: 'Adamant', def: 'Impish', spa: 'Modest', spd: 'Calm', spe: 'Jolly', hp: 'Serious',
-  };
-  return map[stat] ?? 'Serious';
-}
-
-export function remainingEVs(set: PokemonSet): number {
-  return MAX_EV_TOTAL - evTotal(set.evs);
+  nature: string,
+): { bare: number; maxed: number } {
+  const bare = baseStatValue(stat, baseStat, level, nature);
+  return { bare, maxed: bare + MAX_SP_PER_STAT };
 }
 
 export function currentSpeed(set: PokemonSet, format: FormatRules): number {
-  return statsOf(set, format)?.spe ?? 0;
+  return computeSpeed(set, format, defaultScenario()).final;
 }

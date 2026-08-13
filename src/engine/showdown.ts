@@ -1,6 +1,7 @@
 import type { PokemonSet, StatID, StatsTable } from '../types';
-import { STATS, emptyEVs, maxIVs } from '../types';
-import { getAbility, getItem, getMove, getNature, getSpecies, natureModifier, toID } from '../data/dex';
+import { STATS, emptySP } from '../types';
+import { getAbility, getItem, getMove, getNature, getSpecies, toID } from '../data/dex';
+import { MAX_SP_PER_STAT, MAX_SP_TOTAL } from './stats';
 
 const STAT_ALIASES: Record<string, StatID> = {
   hp: 'hp', atk: 'atk', def: 'def', spa: 'spa', spd: 'spd', spe: 'spe',
@@ -23,8 +24,7 @@ export function emptySet(species = ''): PokemonSet {
     ability: s ? s.abilities[0] : '',
     level: 50,
     nature: 'Serious',
-    evs: emptyEVs(),
-    ivs: maxIVs(),
+    sp: emptySP(),
     moves: ['', '', '', ''],
   };
 }
@@ -33,16 +33,36 @@ export function emptySet(species = ''): PokemonSet {
  * Export
  * ------------------------------------------------------------------ */
 
-function statLine(stats: StatsTable, skip: (v: number) => boolean, nature?: string): string {
+function statLine(stats: StatsTable): string {
   const parts: string[] = [];
   for (const s of STATS) {
     const v = stats[s] ?? 0;
-    if (skip(v)) continue;
-    const mod = nature ? natureModifier(nature, s) : 1;
-    const sign = mod > 1 ? '+' : mod < 1 ? '-' : '';
-    parts.push(`${v} ${labelOf(s)}${sign}`);
+    if (!v) continue;
+    parts.push(`${v} ${labelOf(s)}`);
   }
   return parts.join(' / ');
+}
+
+/**
+ * A Showdown paste carries EVs. At Level 50 an EV contributes floor(EV/8) to the
+ * stat, which is exactly what one Stat Point is worth, so that is the conversion —
+ * 252 EVs become 31 points, and a 4-EV filler becomes nothing.
+ */
+export function evsToSP(evs: Partial<StatsTable>): StatsTable {
+  const sp = emptySP();
+  for (const s of STATS) {
+    sp[s] = Math.min(MAX_SP_PER_STAT, Math.floor((evs[s] ?? 0) / 8));
+  }
+  // Legacy spreads can exceed the Champions budget; trim the largest first so the
+  // shape of the spread survives.
+  let over = STATS.reduce((n, s) => n + sp[s], 0) - MAX_SP_TOTAL;
+  while (over > 0) {
+    const biggest = STATS.reduce((a, b) => (sp[a] >= sp[b] ? a : b));
+    if (sp[biggest] === 0) break;
+    sp[biggest] -= 1;
+    over -= 1;
+  }
+  return sp;
 }
 
 function labelOf(s: StatID): string {
@@ -60,11 +80,9 @@ export function exportSet(set: PokemonSet): string {
   if (set.shiny) lines.push('Shiny: Yes');
   if (set.teraType) lines.push(`Tera Type: ${set.teraType}`);
 
-  const evLine = statLine(set.evs, (v) => !v);
-  if (evLine) lines.push(`EVs: ${evLine}`);
+  const spLine = statLine(set.sp);
+  if (spLine) lines.push(`SP: ${spLine}`);
   if (set.nature) lines.push(`${set.nature} Nature`);
-  const ivLine = statLine(set.ivs, (v) => v === 31);
-  if (ivLine) lines.push(`IVs: ${ivLine}`);
 
   for (const move of set.moves) {
     if (move) lines.push(`- ${getMove(move)?.name ?? move}`);
@@ -170,8 +188,15 @@ function importSet(block: string, errors: string[]): PokemonSet | null {
       case 'shiny': set.shiny = /yes|true/i.test(value); break;
       case 'happiness': set.happiness = Number(value) || undefined; break;
       case 'tera type': set.teraType = value; break;
-      case 'evs': applyStats(set.evs, value, 0); break;
-      case 'ivs': applyStats(set.ivs, value, 31); break;
+      case 'sp': applyStats(set.sp, value, 0); break;
+      case 'evs': {
+        // A Scarlet/Violet paste: convert its EVs into the Champions budget.
+        const evs = emptySP();
+        applyStats(evs, value, 0);
+        set.sp = evsToSP(evs);
+        break;
+      }
+      case 'ivs': break; // Champions has no IVs — everything behaves as 31.
       case 'gender': set.gender = (value.toUpperCase()[0] as 'M' | 'F' | 'N') ?? 'N'; break;
       default: {
         const nature = /^([A-Za-z]+)\s+Nature$/i.exec(line);

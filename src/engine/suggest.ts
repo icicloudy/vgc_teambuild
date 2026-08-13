@@ -6,7 +6,7 @@ import type { RosterOverride } from '../data/roster';
 import { defensiveProfile, roleReport, teamTypeTable } from './coverage';
 import { displayName } from './calc';
 import type { ThreatMatrix, ThreatSummary } from './matrix';
-import { resolveForm } from './stats';
+import { MAX_SP_TOTAL, resolveForm, spTotal } from './stats';
 
 export type SuggestionKind =
   | 'threat' | 'coverage' | 'role' | 'speed' | 'spread' | 'redundancy' | 'legality';
@@ -201,24 +201,23 @@ export function buildSuggestions(
 
   /* ---- spreads ------------------------------------------------------- */
   team.forEach((set, i) => {
-    const invested = Object.entries(set.evs).filter(([, v]) => (v ?? 0) > 0);
-    const total = invested.reduce((a, [, v]) => a + (v ?? 0), 0);
+    const total = spTotal(set.sp);
     if (total === 0) {
       out.push({
-        id: `no-evs-${set.id}`,
+        id: `no-sp-${set.id}`,
         kind: 'spread',
         severity: 'important',
-        title: `${nameOf(set, format)} has no EVs`,
+        title: `${nameOf(set, format)} has no Stat Points`,
         detail: 'Use the Optimizer in the slot editor to hit a real defensive or speed benchmark.',
         slots: [i],
       });
-    } else if (total < 400) {
+    } else if (total < MAX_SP_TOTAL) {
       out.push({
-        id: `few-evs-${set.id}`,
+        id: `few-sp-${set.id}`,
         kind: 'spread',
         severity: 'minor',
-        title: `${nameOf(set, format)} has ${508 - total} EVs left over`,
-        detail: 'Unspent EVs are free stats — put them into bulk or a speed benchmark.',
+        title: `${nameOf(set, format)} has ${MAX_SP_TOTAL - total} Stat Points left over`,
+        detail: 'Unspent points are free stats — put them into bulk or a speed benchmark.',
         slots: [i],
       });
     }
@@ -227,19 +226,19 @@ export function buildSuggestions(
     if (!form) return;
     const physical = set.moves.filter((m) => getMove(m)?.category === 'Physical').length;
     const special = set.moves.filter((m) => getMove(m)?.category === 'Special').length;
-    const atkEV = set.evs.atk ?? 0;
-    const spaEV = set.evs.spa ?? 0;
-    if (physical > 0 && special === 0 && spaEV > 0) {
+    const atkSP = set.sp.atk ?? 0;
+    const spaSP = set.sp.spa ?? 0;
+    if (physical > 0 && special === 0 && spaSP > 0) {
       out.push({
         id: `wasted-spa-${set.id}`,
         kind: 'spread',
         severity: 'minor',
         title: `${nameOf(set, format)} invests in Special Attack but has no special moves`,
         slots: [i],
-        detail: `${spaEV} SpA EVs are doing nothing. Move them into bulk or Speed.`,
+        detail: `${spaSP} SpA points are doing nothing. Move them into bulk or Speed.`,
       });
     }
-    if (special > 0 && physical === 0 && atkEV > 0) {
+    if (special > 0 && physical === 0 && atkSP > 0) {
       out.push({
         id: `wasted-atk-${set.id}`,
         kind: 'spread',
@@ -247,18 +246,8 @@ export function buildSuggestions(
         title: `${nameOf(set, format)} invests in Attack but has no physical moves`,
         slots: [i],
         detail:
-          `${atkEV} Atk EVs are doing nothing — and an uninvested Attack stat also means ` +
+          `${atkSP} Atk points are doing nothing — and a lower Attack stat also means ` +
           'less damage from Foul Play and confusion, which is usually what you want.',
-      });
-    }
-    if (physical === 0 && (set.ivs.atk ?? 31) === 31 && special > 0) {
-      out.push({
-        id: `atk-iv-${set.id}`,
-        kind: 'spread',
-        severity: 'minor',
-        title: `${nameOf(set, format)} could run 0 Attack IVs`,
-        detail: 'It has no physical moves, so 0 Atk IVs reduce confusion and Foul Play damage.',
-        slots: [i],
       });
     }
   });
