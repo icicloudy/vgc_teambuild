@@ -6,6 +6,7 @@ import { resolveForm } from '../engine/stats';
 import { importTeam } from '../engine/showdown';
 import { useFormat, useStore } from '../store';
 import { Pill, Section, Sprite, TypeBadge } from './common';
+import { plural } from '../text';
 
 export function ThreatDbPanel() {
   const format = useFormat();
@@ -44,7 +45,7 @@ export function ThreatDbPanel() {
         builtIn: false,
       });
     }
-    setPasteMsg(`Added ${sets.length} threat(s).${errors.length ? ` (${errors.length} warning(s))` : ''}`);
+    setPasteMsg(`Added ${plural(sets.length, 'threat')}.${errors.length ? ` ${plural(errors.length, 'warning')}.` : ''}`);
     setPaste('');
   };
 

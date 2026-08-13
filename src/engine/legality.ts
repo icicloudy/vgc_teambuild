@@ -7,6 +7,7 @@ import { CATEGORY_LABELS, categoryViolation, rosterConfidence } from '../data/ro
 import type { RosterOverride } from '../data/roster';
 import { MAX_EV_SINGLE, MAX_EV_TOTAL, evTotal, resolveForm } from './stats';
 import { displayName } from './calc';
+import { plural } from '../text';
 
 function issue(
   level: LegalityIssue['level'],
@@ -103,7 +104,7 @@ export function validateSet(
   if (filled.length === 0) {
     out.push(issue('error', slot, 'no-moves', `${label} has no moves.`));
   } else if (filled.length < 4) {
-    out.push(issue('info', slot, 'few-moves', `${label} only has ${filled.length} move(s).`));
+    out.push(issue('info', slot, 'few-moves', `${label} only has ${plural(filled.length, 'move')}.`));
   }
   const seenMoves = new Set<string>();
   const learnset = learnsetSync(set.species);

@@ -25,3 +25,7 @@ dist-ssr
 
 # Smoke-test output
 screenshots/
+
+# Single-file build output (regenerate with npm run build:artifact)
+dist-artifact
+artifact/

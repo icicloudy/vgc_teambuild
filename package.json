@@ -12,7 +12,9 @@
     "lint": "oxlint",
     "check": "tsx scripts/check-data.ts",
     "smoke": "node scripts/smoke.mjs",
-    "smoke:mobile": "node scripts/mobile-check.mjs"
+    "smoke:mobile": "node scripts/mobile-check.mjs",
+    "build:artifact": "tsc -b && vite build --config vite.artifact.config.ts && node scripts/make-artifact.mjs",
+    "check:artifact": "node scripts/artifact-check.mjs"
   },
   "dependencies": {
     "@pkmn/data": "^0.10.11",
@@ -28,11 +30,12 @@
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.4",
     "oxlint": "^1.75.0",
+    "playwright": "^1.58.0",
     "tsx": "^4.23.12",
     "typescript": "~6.0.2",
     "vite": "^8.2.0",
-    "vitest": "^4.1.10",
-    "playwright": "^1.58.0"
+    "vite-plugin-singlefile": "^2.3.3",
+    "vitest": "^4.1.10"
   },
   "description": "Teambuilder, damage calculator and coach for Pok\u00e9mon Champions VGC"
 }

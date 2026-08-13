@@ -52,10 +52,7 @@ export function buildSuggestions(
         kind: 'threat',
         severity: s.pressure >= 60 ? 'critical' : 'important',
         title: `${s.name} is a problem`,
-        detail:
-          s.koers.length === 0
-            ? `Nothing on the team OHKOes it, and it OHKOes ${s.victims.length} of your Pokémon.`
-            : `It OHKOes ${s.victims.length} of your Pokémon; only ${s.koers.length} of yours can OHKO back.`,
+        detail: describeThreat(s.koers.length, s.victims.length),
         candidates: counters,
       });
     }
@@ -268,6 +265,24 @@ export function buildSuggestions(
 
   const order: Record<Suggestion['severity'], number> = { critical: 0, important: 1, minor: 2 };
   return out.sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+/** Plain-language read on a threat, phrased for whichever side is actually losing. */
+function describeThreat(koers: number, victims: number): string {
+  if (koers === 0 && victims === 0) {
+    return 'Neither side can OHKO the other, and it still comes out ahead of everything ' +
+      'you have — you win this one on positioning or not at all.';
+  }
+  if (koers === 0) {
+    const who = victims === 1 ? 'one of your Pokémon' : `${victims} of your Pokémon`;
+    return `Nothing on the team OHKOes it, and it OHKOes ${who}.`;
+  }
+  if (victims === 0) {
+    const mine = koers === 1 ? 'One of yours' : `${koers} of yours`;
+    return `${mine} can OHKO it, but nothing it targets goes down in one hit — expect a long exchange.`;
+  }
+  const mine = koers === 1 ? 'one of yours' : `${koers} of yours`;
+  return `It OHKOes ${victims} of your Pokémon; only ${mine} can OHKO back.`;
 }
 
 function nameOf(set: PokemonSet, format: FormatRules): string {

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { createJSONStorage, persist } from 'zustand/middleware';
 import type {
   CombatantState, FieldState, PokemonSet, Team, ThreatSet,
 } from './types';
@@ -66,6 +66,30 @@ interface AppState {
   resetThreats: () => void;
 
   setRosterOverride: (o: RosterOverride | null) => void;
+}
+
+/**
+ * Sandboxed embeds (and Safari private mode) can make `localStorage` throw on
+ * access, not just on write. Fall back to an in-memory store so the app still
+ * runs — teams just do not survive a reload there.
+ */
+function safeStorage(): Storage {
+  try {
+    const probe = '__champions_probe__';
+    window.localStorage.setItem(probe, '1');
+    window.localStorage.removeItem(probe);
+    return window.localStorage;
+  } catch {
+    const mem = new Map<string, string>();
+    return {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => { mem.set(k, v); },
+      removeItem: (k: string) => { mem.delete(k); },
+      clear: () => mem.clear(),
+      key: (i: number) => [...mem.keys()][i] ?? null,
+      get length() { return mem.size; },
+    } as Storage;
+  }
 }
 
 function starterTeam(): Team {
@@ -205,6 +229,7 @@ export const useStore = create<AppState>()(
     {
       name: 'champions-teambuilder',
       version: 1,
+      storage: createJSONStorage(safeStorage),
       partialize: (s) => ({
         teams: s.teams,
         activeTeamId: s.activeTeamId,

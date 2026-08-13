@@ -1,20 +1,29 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { spriteUrl } from '../data/dex';
+import { getSpecies, spriteUrl } from '../data/dex';
 import { displayName } from '../engine/calc';
 
 /* ------------------------------------------------------------------ *
- * Sprite with graceful fallback (Champions-exclusive Megas have no
- * upstream sprite yet, and the app works fully offline).
+ * Sprite with graceful fallback: Champions-exclusive Megas have no
+ * upstream sprite yet, the app must work offline, and a sandboxed embed
+ * may block remote images entirely. The fallback is type-coloured so it
+ * still carries information rather than looking like a broken image.
  * ------------------------------------------------------------------ */
 
-export function Sprite({
-  species, size = 40, className = '',
-}: { species: string; size?: number; className?: string }) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [species]);
+/** Builds without remote sprites (single-file/embedded builds) skip the request. */
+const REMOTE_SPRITES = import.meta.env.VITE_OFFLINE_SPRITES !== '1';
 
-  const label = displayName(species);
+const TYPE_COLORS: Record<string, string> = {
+  normal: '#a8a878', fire: '#f0803c', water: '#6890f0', electric: '#f8d030',
+  grass: '#78c850', ice: '#98d8d8', fighting: '#c03028', poison: '#a040a0',
+  ground: '#e0c068', flying: '#a890f0', psychic: '#f85888', bug: '#a8b820',
+  rock: '#b8a038', ghost: '#705898', dragon: '#7038f8', dark: '#705848',
+  steel: '#b8b8d0', fairy: '#ee99ac',
+};
+
+function SpriteFallback({
+  species, label, size, className,
+}: { species: string; label: string; size: number; className: string }) {
   const initials = label
     .replace(/^Mega /, '')
     .split(/[\s-]/)
@@ -23,19 +32,39 @@ export function Sprite({
     .join('')
     .toUpperCase();
 
+  const types = getSpecies(species)?.types ?? [];
+  const a = TYPE_COLORS[(types[0] ?? '').toLowerCase()] ?? 'var(--line-2)';
+  const b = TYPE_COLORS[(types[1] ?? types[0] ?? '').toLowerCase()] ?? a;
+
+  return (
+    <span
+      className={`sprite sprite-fallback ${className}`}
+      style={{
+        width: size,
+        height: size,
+        fontSize: size * 0.34,
+        background: `linear-gradient(135deg, ${a} 0%, ${a} 50%, ${b} 50%, ${b} 100%)`,
+      }}
+      title={label}
+    >
+      <span className="sprite-initials">{initials}</span>
+    </span>
+  );
+}
+
+export function Sprite({
+  species, size = 40, className = '',
+}: { species: string; size?: number; className?: string }) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [species]);
+
+  const label = displayName(species);
+
   if (!species) {
     return <span className={`sprite sprite-empty ${className}`} style={{ width: size, height: size }} />;
   }
-  if (failed) {
-    return (
-      <span
-        className={`sprite sprite-fallback ${className}`}
-        style={{ width: size, height: size, fontSize: size * 0.34 }}
-        title={label}
-      >
-        {initials}
-      </span>
-    );
+  if (failed || !REMOTE_SPRITES) {
+    return <SpriteFallback species={species} label={label} size={size} className={className} />;
   }
   return (
     <img

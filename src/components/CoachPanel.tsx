@@ -6,6 +6,7 @@ import { displayName } from '../engine/calc';
 import { resolveForm } from '../engine/stats';
 import { useActiveTeam, useEnabledThreats, useFormat, useStore } from '../store';
 import { Pill, Section, Sprite } from './common';
+import { plural } from '../text';
 
 export function CoachPanel({ issues }: { issues: LegalityIssue[] }) {
   const format = useFormat();
@@ -47,7 +48,7 @@ export function CoachPanel({ issues }: { issues: LegalityIssue[] }) {
   return (
     <div className="coach-wrap">
       {blocking.length > 0 && (
-        <Section title="Fix before you play" subtitle={`${blocking.length} rule violation(s)`}>
+        <Section title="Fix before you play" subtitle={plural(blocking.length, 'rule violation')}>
           <ul className="issue-list">
             {blocking.map((issue, i) => (
               <li key={i} className="issue issue-error">
@@ -74,7 +75,7 @@ export function CoachPanel({ issues }: { issues: LegalityIssue[] }) {
         title="Coach"
         subtitle={
           suggestions.length
-            ? `${suggestions.length} thing(s) worth looking at, most important first`
+            ? `${plural(suggestions.length, 'thing')} worth looking at, most important first`
             : 'Nothing obvious to improve — nice team.'
         }
       >

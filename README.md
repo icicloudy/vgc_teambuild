@@ -127,8 +127,8 @@ tells you where it is guessing:
   it in the Metagame tab; everything downstream sharpens as it gets closer to your ladder.
 - **The M-A roster split** from M-B could not be verified offline and is reconstructed from
   the reported M-B additions.
-- **Sprites** load from Pokémon Showdown and fall back to a monogram, so the app works
-  offline and Champions-exclusive Megas without an upstream sprite still render cleanly.
+- **Sprites** load from Pokémon Showdown and fall back to type-coloured initials, so the app
+  works offline and Champions-exclusive Megas without an upstream sprite still render cleanly.
 
 ---
 
@@ -141,9 +141,32 @@ src/
               · EV optimizer · suggestions · Showdown import-export
   components/ UI
 scripts/
-  check-data.ts   validates the threat DB and exercises the engine offline
-  smoke.mjs       builds a team through the real UI in Chromium
+  check-data.ts     validates the threat DB and exercises the engine offline
+  smoke.mjs         builds a team through the real UI in Chromium
+  mobile-check.mjs  asserts the phone layout stays operable
+  make-artifact.mjs packs the single-file build for embedding
+  artifact-check.mjs runs that build with no network and no localStorage
 ```
 
 The engine is plain TypeScript with no React dependency, so `npm run check` exercises the
 damage math, the optimizer, legality and paste round-tripping without a browser.
+
+---
+
+## Single-file build
+
+`npm run build:artifact` bundles the entire app — React, the dex, the damage
+calculator, every asset — into one self-contained HTML file at
+`artifact/champions-teambuilder.html` (~5.6 MB, ~970 KB over the wire). It makes no
+external requests at all, so it runs behind a strict content-security policy, from a
+`file://` URL, or fully offline.
+
+Two things differ from the normal build. Remote sprites are compiled out and replaced
+with type-coloured initials, since a sandboxed embed blocks external images anyway. And
+`localStorage` is accessed through a guard that falls back to memory, because some
+embedded contexts throw on access rather than on write — teams then last for the session
+instead of persisting.
+
+`npm run check:artifact` serves the file and asserts it: boots with `localStorage`
+blocked, attempts zero external requests, and still computes learnsets, damage, the
+threat matrix and the coach.

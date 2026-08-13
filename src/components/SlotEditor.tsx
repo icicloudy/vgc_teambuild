@@ -14,6 +14,7 @@ import type { ComboOption } from './common';
 import { OptimizerPanel } from './Optimizer';
 import { SlotMatchupPreview } from './SlotMatchupPreview';
 import { useLearnset } from './useLearnset';
+import { plural } from '../text';
 
 export function SlotEditor({ issues }: { issues: LegalityIssue[] }) {
   const team = useActiveTeam();
@@ -392,7 +393,7 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
         </Section>
 
         {slotIssues.length > 0 && (
-          <Section title="Legality" subtitle={`${slotIssues.length} note(s) for this slot`}>
+          <Section title="Legality" subtitle={`${plural(slotIssues.length, 'note')} for this slot`}>
             <ul className="issue-list">
               {slotIssues.map((issue, i) => (
                 <li key={i} className={`issue issue-${issue.level}`}>
