@@ -14,6 +14,7 @@ npm run build          # static bundle in dist/
 npm run check          # offline data + engine sanity checks
 npm run smoke          # drives the real UI in Chromium
 npm run smoke:mobile   # same, at a phone viewport
+npm run smoke:features # filters, the threshold map, any-Pokémon calcs
 ```
 
 ## Using it on your phone
@@ -51,10 +52,10 @@ inside their panels rather than stretching the page.
 **Build** — six slots with a species search that takes what a Pokémon *does*, not just its
 name: type `intimidate`, `fake out` or `steel`, and stack them (`fake out intimidate`) to
 intersect. Unevolved Pokémon sort last and are labelled, so they never crowd out real options.
-Item/ability/move pickers with learnset filtering,
-Stat Point sliders with live stat totals and a marker where the 66-point budget runs out, and Mega Evolution handled the way the game handles it:
-hold the stone, and the forme, typing, ability and stats all switch over everywhere in the
-app. Showdown paste import/export both ways, including folding `Mega Charizard Y` back into
+Learnset-filtered move and item pickers, Stat Point sliders with live totals and a marker where
+the 66-point budget runs out, and Mega Evolution handled the way the game handles it: hold the
+stone, and the forme, typing, ability and stats all switch over everywhere in the app. Showdown
+paste import/export both ways, including folding `Mega Charizard Y` back into
 Charizard @ Charizardite Y.
 
 **Matchups, always on** — while you edit a set, the right-hand panel shows the best move
