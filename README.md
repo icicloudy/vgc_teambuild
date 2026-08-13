@@ -8,11 +8,40 @@ Runs entirely in the browser. No backend, no account, teams saved to local stora
 
 ```bash
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # static bundle in dist/
-npm run check    # offline data + engine sanity checks
-npm run smoke    # drives the real UI in Chromium
+npm run dev            # http://localhost:5173
+npm run build          # static bundle in dist/
+npm run check          # offline data + engine sanity checks
+npm run smoke          # drives the real UI in Chromium
+npm run smoke:mobile   # same, at a phone viewport
 ```
+
+## Using it on your phone
+
+The app is a static site with no backend, so anything that can serve a folder works.
+
+**Same Wi-Fi, no deploy** — the quickest option:
+
+```bash
+npm run dev:lan        # or: npm run build && npm run preview:lan
+```
+
+Vite prints a `Network:` URL (`http://192.168.x.x:5173`). Open that on your phone while
+it is on the same network. Add it to your home screen and it opens like an app.
+
+**Anywhere** — `npm run build` produces a fully static `dist/`, deployable to GitHub Pages,
+Netlify, Cloudflare Pages or any static host. For a host that serves from a sub-path (such
+as a GitHub Pages project site at `/<repo>/`), build with the path set:
+
+```bash
+BASE_PATH=/vgc_teambuild/ npm run build
+```
+
+Teams live in the browser's local storage, so each device keeps its own. To move a team
+across, use Import / Export — the paste is plain text.
+
+The layout is built for phones as well as desktop: the team becomes a swipeable strip above
+the tabs, and the wide tables (threat matrix, type chart, speed tiers) scroll horizontally
+inside their panels rather than stretching the page.
 
 ---
 

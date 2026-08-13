@@ -638,7 +638,62 @@ select:focus, input:focus, textarea:focus { outline: none; border-color: var(--a
   .build-grid, .calc-grid, .calc-results { grid-template-columns: 1fr; }
   .grid-2 { grid-template-columns: 1fr; }
 }
+/*
+ * Phones: the team rail becomes a horizontal strip above the tabs rather than
+ * disappearing — hiding it would strand you on slot 1 with no way to switch,
+ * add or remove a Pokémon.
+ */
 @media (max-width: 900px) {
-  .rail { display: none; }
+  .body { flex-direction: column; }
+
+  .rail {
+    width: 100%;
+    flex: 0 0 auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .rail-head { padding: 8px 12px 4px; }
+  .rail-foot { display: none; }
+  .rail-list {
+    flex-direction: row;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 8px 12px 10px;
+    gap: 8px;
+    scroll-snap-type: x proximity;
+  }
+  .slot { flex: 0 0 auto; width: 186px; scroll-snap-align: start; position: relative; }
+  .slot-moves { display: none; }
+  .slot-meta { font-size: 10px; }
+  .slot-add { width: 132px; flex-direction: column; gap: 2px; padding: 10px; text-align: center; }
+
+  /* Reordering is a desktop nicety; on a phone the card keeps only delete, parked
+     in the corner so it never competes with the name for width. */
+  .slot-side { position: absolute; top: 5px; right: 5px; flex-direction: row; gap: 4px; }
+  .slot-tools .slot-tool-move { display: none; }
+  .slot-tools { opacity: 1; }
+  .slot-name { max-width: 104px; }
+
+  .topbar { gap: 8px; padding: 8px 12px; }
+  .brand-sub { display: none; }
+  .topbar-status { margin-left: 0; }
+  .team-name { max-width: 130px; }
+  .tab-body { padding: 12px; }
+  .panel { padding: 12px; }
+  .panel-actions { max-width: 100%; }
   .move-grid { grid-template-columns: 1fr; }
+  .modal-backdrop { padding: 0; }
+  .modal { max-height: 100vh; border-radius: 0; }
+}
+
+@media (hover: none) {
+  .slot-tools { opacity: 1; }
+}
+
+/* Give touch targets a usable minimum without changing the desktop look. */
+@media (pointer: coarse) {
+  .slot-tools button { width: 26px; height: 26px; font-size: 12px; }
+  .toggle, .btn-sm { padding: 6px 11px; }
+  .combo-opt { padding: 9px; }
+  .tab { padding: 10px 14px; }
 }

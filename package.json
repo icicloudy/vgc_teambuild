@@ -5,11 +5,14 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:lan": "HOST_ALL=1 vite",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
+    "preview:lan": "HOST_ALL=1 vite preview",
     "lint": "oxlint",
     "check": "tsx scripts/check-data.ts",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "smoke:mobile": "node scripts/mobile-check.mjs"
   },
   "dependencies": {
     "@pkmn/data": "^0.10.11",

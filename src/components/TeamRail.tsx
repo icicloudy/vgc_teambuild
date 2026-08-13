@@ -67,10 +67,10 @@ export function TeamRail({ issues }: { issues: LegalityIssue[] }) {
                 {errors > 0 && <span className="dot dot-error" title={`${errors} illegal`} />}
                 {warns > 0 && errors === 0 && <span className="dot dot-warn" title={`${warns} warning`} />}
                 <div className="slot-tools" onClick={(e) => e.stopPropagation()}>
-                  <button title="Move up" onClick={() => moveMember(i, i - 1)}>↑</button>
-                  <button title="Move down" onClick={() => moveMember(i, i + 1)}>↓</button>
-                  <button title="Duplicate" onClick={() => duplicateMember(i)}>⧉</button>
-                  <button title="Remove" onClick={() => removeMember(i)}>×</button>
+                  <button className="slot-tool-move" title="Move up" onClick={() => moveMember(i, i - 1)}>↑</button>
+                  <button className="slot-tool-move" title="Move down" onClick={() => moveMember(i, i + 1)}>↓</button>
+                  <button className="slot-tool-move" title="Duplicate" onClick={() => duplicateMember(i)}>⧉</button>
+                  <button className="slot-tool-del" title="Remove" onClick={() => removeMember(i)}>×</button>
                 </div>
               </div>
             </div>
