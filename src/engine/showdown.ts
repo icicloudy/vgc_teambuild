@@ -1,0 +1,199 @@
+import type { PokemonSet, StatID, StatsTable } from '../types';
+import { STATS, emptyEVs, maxIVs } from '../types';
+import { Dex, getItem, getSpecies, toID } from '../data/dex';
+import { natureModifier } from '../data/dex';
+
+const STAT_ALIASES: Record<string, StatID> = {
+  hp: 'hp', atk: 'atk', def: 'def', spa: 'spa', spd: 'spd', spe: 'spe',
+  'special attack': 'spa', 'special defense': 'spd', speed: 'spe', attack: 'atk', defense: 'def',
+};
+
+let uid = 0;
+export function newId(): string {
+  uid += 1;
+  return `set-${Date.now().toString(36)}-${uid}`;
+}
+
+export function emptySet(species = ''): PokemonSet {
+  const s = getSpecies(species);
+  return {
+    id: newId(),
+    species: s?.name ?? species,
+    nickname: '',
+    item: '',
+    ability: s ? (Object.values(s.abilities)[0] as string) : '',
+    level: 50,
+    nature: 'Serious',
+    evs: emptyEVs(),
+    ivs: maxIVs(),
+    moves: ['', '', '', ''],
+  };
+}
+
+/* ------------------------------------------------------------------ *
+ * Export
+ * ------------------------------------------------------------------ */
+
+function statLine(stats: StatsTable, skip: (v: number) => boolean, nature?: string): string {
+  const parts: string[] = [];
+  for (const s of STATS) {
+    const v = stats[s] ?? 0;
+    if (skip(v)) continue;
+    const mod = nature ? natureModifier(nature, s) : 1;
+    const sign = mod > 1 ? '+' : mod < 1 ? '-' : '';
+    parts.push(`${v} ${labelOf(s)}${sign}`);
+  }
+  return parts.join(' / ');
+}
+
+function labelOf(s: StatID): string {
+  return { hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe' }[s];
+}
+
+export function exportSet(set: PokemonSet): string {
+  const lines: string[] = [];
+  const species = getSpecies(set.species)?.name ?? set.species;
+  const head = set.nickname && set.nickname !== species ? `${set.nickname} (${species})` : species;
+  const gender = set.gender && set.gender !== 'N' ? ` (${set.gender})` : '';
+  lines.push(`${head}${gender}${set.item ? ` @ ${getItem(set.item)?.name ?? set.item}` : ''}`);
+  if (set.ability) lines.push(`Ability: ${set.ability}`);
+  if (set.level !== 100) lines.push(`Level: ${set.level}`);
+  if (set.shiny) lines.push('Shiny: Yes');
+  if (set.teraType) lines.push(`Tera Type: ${set.teraType}`);
+
+  const evLine = statLine(set.evs, (v) => !v);
+  if (evLine) lines.push(`EVs: ${evLine}`);
+  if (set.nature) lines.push(`${set.nature} Nature`);
+  const ivLine = statLine(set.ivs, (v) => v === 31);
+  if (ivLine) lines.push(`IVs: ${ivLine}`);
+
+  for (const move of set.moves) {
+    if (move) lines.push(`- ${Dex.moves.get(move)?.name ?? move}`);
+  }
+  return lines.join('\n');
+}
+
+export function exportTeam(sets: PokemonSet[]): string {
+  return sets.map(exportSet).join('\n\n');
+}
+
+/* ------------------------------------------------------------------ *
+ * Import
+ * ------------------------------------------------------------------ */
+
+export interface ImportResult {
+  sets: PokemonSet[];
+  errors: string[];
+}
+
+export function importTeam(text: string): ImportResult {
+  const errors: string[] = [];
+  const blocks = text
+    .replace(/\r/g, '')
+    .split(/\n\s*\n/)
+    .map((b) => b.trim())
+    .filter(Boolean);
+
+  const sets: PokemonSet[] = [];
+  for (const block of blocks) {
+    const parsed = importSet(block, errors);
+    if (parsed) sets.push(parsed);
+  }
+  if (!sets.length && text.trim()) errors.push('No Pokémon could be read from that paste.');
+  return { sets, errors };
+}
+
+function importSet(block: string, errors: string[]): PokemonSet | null {
+  const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return null;
+
+  const set = emptySet();
+  set.nature = 'Serious';
+
+  // Header: "Nickname (Species) (M) @ Item"
+  let header = lines[0];
+  let item = '';
+  const atIndex = header.lastIndexOf(' @ ');
+  if (atIndex >= 0) {
+    item = header.slice(atIndex + 3).trim();
+    header = header.slice(0, atIndex).trim();
+  }
+  const genderMatch = /\((M|F)\)\s*$/.exec(header);
+  if (genderMatch) {
+    set.gender = genderMatch[1] as 'M' | 'F';
+    header = header.slice(0, genderMatch.index).trim();
+  }
+  let speciesName = header;
+  let nickname = '';
+  const parenMatch = /^(.*)\s+\(([^)]+)\)$/.exec(header);
+  if (parenMatch) {
+    nickname = parenMatch[1].trim();
+    speciesName = parenMatch[2].trim();
+  }
+
+  const species = getSpecies(speciesName);
+  if (!species) {
+    errors.push(`Unknown Pokémon: "${speciesName}"`);
+    return null;
+  }
+  // A Mega forme in the paste becomes base species + stone.
+  if (species.forme?.startsWith('Mega')) {
+    const base = getSpecies(species.baseSpecies);
+    set.species = base?.name ?? species.name;
+    if (species.requiredItem && !item) item = species.requiredItem;
+  } else {
+    set.species = species.name;
+  }
+  set.nickname = nickname && toID(nickname) !== toID(set.species) ? nickname : '';
+
+  if (item) {
+    const resolved = getItem(item);
+    if (!resolved) errors.push(`Unknown item: "${item}"`);
+    set.item = resolved?.name ?? item;
+  }
+
+  const moves: string[] = [];
+  for (const line of lines.slice(1)) {
+    if (line.startsWith('-') || line.startsWith('~')) {
+      const raw = line.slice(1).trim().split('/')[0].trim();
+      const move = Dex.moves.get(raw);
+      if (!move?.exists) errors.push(`Unknown move: "${raw}"`);
+      moves.push(move?.exists ? move.name : raw);
+      continue;
+    }
+    const colon = line.indexOf(':');
+    const key = colon >= 0 ? line.slice(0, colon).trim().toLowerCase() : '';
+    const value = colon >= 0 ? line.slice(colon + 1).trim() : '';
+
+    switch (key) {
+      case 'ability': set.ability = Dex.abilities.get(value)?.name ?? value; break;
+      case 'level': set.level = Number(value) || 50; break;
+      case 'shiny': set.shiny = /yes|true/i.test(value); break;
+      case 'happiness': set.happiness = Number(value) || undefined; break;
+      case 'tera type': set.teraType = value; break;
+      case 'evs': applyStats(set.evs, value, 0); break;
+      case 'ivs': applyStats(set.ivs, value, 31); break;
+      case 'gender': set.gender = (value.toUpperCase()[0] as 'M' | 'F' | 'N') ?? 'N'; break;
+      default: {
+        const nature = /^([A-Za-z]+)\s+Nature$/i.exec(line);
+        if (nature && Dex.natures.get(nature[1])?.exists) {
+          set.nature = Dex.natures.get(nature[1]).name;
+        }
+      }
+    }
+  }
+
+  if (!set.ability) set.ability = Object.values(species.abilities)[0] as string;
+  set.moves = [moves[0] ?? '', moves[1] ?? '', moves[2] ?? '', moves[3] ?? ''];
+  return set;
+}
+
+function applyStats(target: StatsTable, value: string, fallback: number) {
+  for (const s of STATS) target[s] = fallback;
+  for (const chunk of value.split('/')) {
+    const m = /^\s*(\d+)\s+([A-Za-z ]+?)\s*[+-]?\s*$/.exec(chunk);
+    if (!m) continue;
+    const stat = STAT_ALIASES[m[2].trim().toLowerCase()];
+    if (stat) target[stat] = Number(m[1]);
+  }
+}
