@@ -49,7 +49,7 @@ inside their panels rather than stretching the page.
 ## What it does
 
 **Build** — six slots, searchable species/item/ability/move pickers with learnset filtering,
-EV sliders with live stat totals, and Mega Evolution handled the way the game handles it:
+Stat Point sliders with live stat totals and a marker where the 66-point budget runs out, and Mega Evolution handled the way the game handles it:
 hold the stone, and the forme, typing, ability and stats all switch over everywhere in the
 app. Showdown paste import/export both ways, including folding `Mega Charizard Y` back into
 Charizard @ Charizardite Y.
@@ -84,8 +84,8 @@ Fake Out, Intimidate, redirection, spread moves, priority.
 
 **Coach** — reads the matrix and the team and tells you what to fix, most important first:
 threats nothing answers (with concrete replacement Pokémon you can add in one click), stacked
-weaknesses with no resist, missing roles, wasted EVs, Attack investment on a special
-attacker, 0 Atk IV opportunities.
+weaknesses with no resist, missing roles, unspent Stat Points, and Attack investment on a
+special attacker.
 
 **Metagame** — the threat list every calculation runs against, fully editable. Paste the set
 that just beat you and it becomes part of the analysis.
