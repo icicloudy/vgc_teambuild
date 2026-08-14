@@ -107,29 +107,45 @@ export const KNOWN_ABSENT_ITEMS: Record<string, string> = {
  * ------------------------------------------------------------------ */
 
 /**
- * Species confirmed present in Champions as of Regulation M-B: everything that
- * shows up in ranked usage data, plus the Pokémon named in the M-B announcement.
+ * Species confirmed present in Champions as of Regulation M-B.
  *
- * This is *not* the whole 208 — it is the part that can be cited. Everything
- * else is judged by the rules the roster is known to follow (see roster.ts).
+ * Every name here traces to a source, and they are grouped by which one. That is
+ * a deliberate constraint, not tidiness: an earlier version of this list carried
+ * names added from memory, and one of them (Togekiss) is not in the game — which
+ * is exactly the failure a teambuilder must not have. **Do not add a name here
+ * without a source for it.**
+ *
+ * On top of this list, roster.ts also treats every species with a Champions Mega
+ * Stone as confirmed, since the stone's existence in the game implies the
+ * Pokémon's.
+ *
+ * This is *not* the whole 208. The full roster is not published in a form this
+ * app can read, so the rest is inferred (see roster.ts) — and the drafter refuses
+ * to pick from the inferred part.
  */
 export const CONFIRMED_SPECIES = [
-  // Top of the Reg M-B usage table, in order.
+  // Reg M-B ranked usage data (Pikalytics, Season 3) — if people are laddering
+  // with it, it exists.
   'Garchomp', 'Basculegion', 'Whimsicott', 'Kingambit', 'Sinistcha', 'Incineroar',
   'Charizard', 'Staraptor', 'Floette-Eternal', 'Sylveon', 'Sneasler', 'Farigiraf',
   'Pelipper', 'Raichu', 'Archaludon', 'Maushold', 'Metagross', 'Swampert',
   'Grimmsnarl', 'Aerodactyl', 'Milotic', 'Meganium', 'Mimikyu', 'Scrafty',
-  // Added in Regulation Set M-B.
+  // Named in the Regulation Set M-B announcement as new to the roster.
   'Vileplume', 'Qwilfish', 'Sceptile', 'Blaziken', 'Mawile', 'Musharna', 'Scolipede',
   'Eelektross', 'Pyroar', 'Malamar', 'Barbaracle', 'Dragalge', 'Falinks', 'Overqwil',
   'Houndstone', 'Annihilape', 'Gholdengo',
-  // Named in launch coverage and roster guides.
-  'Dragonite', 'Tyranitar', 'Greninja', 'Dragapult', 'Palafin', 'Excadrill', 'Clefable',
-  'Gengar', 'Salamence', 'Venusaur', 'Blastoise', 'Chesnaught', 'Delphox', 'Baxcalibur',
-  'Zeraora', 'Absol', 'Lucario', 'Alakazam', 'Aggron', 'Ampharos', 'Abomasnow',
-  'Altaria', 'Audino', 'Banette', 'Beedrill', 'Camerupt', 'Gardevoir', 'Gyarados',
-  'Heracross', 'Houndoom', 'Kangaskhan', 'Manectric', 'Medicham', 'Pidgeot', 'Pinsir',
-  'Sableye', 'Scizor', 'Sharpedo', 'Slowbro', 'Steelix', 'Glalie', 'Lopunny',
+  // Named in launch coverage of the roster.
+  'Dragonite', 'Tyranitar', 'Greninja', 'Dragapult', 'Palafin',
+  // Serebii's Champions Pokédex: individual entries and type listings.
+  'Excadrill', 'Feraligatr', 'Ampharos', 'Altaria', 'Hydreigon', 'Tyrantrum',
+  'Pidgeot', 'Kangaskhan', 'Tauros', 'Ditto', 'Snorlax', 'Castform', 'Lopunny',
+  'Watchog', 'Audino',
+  // Enumerated in published roster guides (A-C section).
+  'Abomasnow', 'Absol', 'Aegislash', 'Aggron', 'Alakazam', 'Alcremie', 'Appletun',
+  'Araquanid', 'Arbok', 'Arcanine', 'Ariados', 'Armarouge', 'Aromatisse', 'Aurorus',
+  'Avalugg', 'Azumarill', 'Banette', 'Bastiodon', 'Beartic', 'Beedrill', 'Bellibolt',
+  'Blastoise', 'Camerupt', 'Ceruledge', 'Chandelure', 'Chesnaught', 'Chimecho',
+  'Clawitzer', 'Clefable', 'Cofagrigus', 'Conkeldurr', 'Corviknight', 'Crabominable',
 ];
 
 /**

@@ -18,9 +18,11 @@ import { minSPToSurvive, minSPToKO, minSPToOutspeed, survivalGrid } from '../src
 import { validateTeam } from '../src/engine/legality.ts';
 import { rosterConfidence } from '../src/data/roster.ts';
 import { itemCatalogue, inChampionsPool } from '../src/data/items.ts';
+import { moveIsJustified } from '../src/engine/setgen.ts';
 import { NFE_EXCEPTIONS } from '../src/data/champions.ts';
 import { draftTeam, prepareThreats, teamShape } from '../src/engine/autobuild.ts';
 import type { PlanId } from '../src/engine/plans.ts';
+import type { TypeName } from '../src/data/dex.ts';
 import { emptySet } from '../src/engine/showdown.ts';
 import { getNature, effectiveness } from '../src/data/dex.ts';
 
@@ -311,6 +313,12 @@ console.log('\n=== Legality ===');
 
 console.log('\n=== Drafter ===');
 {
+  // `gaps` is every type here: the check asks whether the move can *ever* justify
+  // itself, not whether it did against one particular team.
+  const TYPE_LIST = [
+    'Normal', 'Fire', 'Water', 'Electric', 'Grass', 'Ice', 'Fighting', 'Poison',
+    'Ground', 'Flying', 'Psychic', 'Bug', 'Rock', 'Ghost', 'Dragon', 'Dark', 'Steel', 'Fairy',
+  ];
   const field = defaultField('Doubles');
   const plans: (PlanId | 'auto')[] = ['auto', 'balance', 'trickroom', 'sun', 'rain', 'bulky', 'tailwind'];
   let drafted = 0;
@@ -364,6 +372,14 @@ console.log('\n=== Drafter ===');
         if (!getNature(member.nature)) fail(`${label} has an unknown Nature ${member.nature}`);
       }
 
+      // The drafter may only propose Pokémon confirmed to be in Champions.
+      // Suggesting one that is not in the game is the worst failure this tool has.
+      for (const member of result.team.slice(start.length)) {
+        if (rosterConfidence(member.species, format, null) !== 'confirmed') {
+          fail(`${plan}: drafted ${member.species}, which is not confirmed to be in Champions`);
+        }
+      }
+
       // Every held item must exist in Champions, and no spread move may hit the
       // team's own side unless every partner is immune to it.
       for (const member of result.team) {
@@ -383,6 +399,28 @@ console.log('\n=== Drafter ===');
             return effectiveness(move.type, form.types) === 0;
           });
           if (!safe) fail(`${plan}/${member.species} runs ${move.name}, which hits its own partner`);
+        }
+      }
+
+      // A damaging move earns its slot by STAB, by coverage, by a rider, or by
+      // being overwhelming. Anything else is filler — a non-STAB Normal move with
+      // none of the above is the case that started this rule.
+      const allTypes = new Set(TYPE_LIST as TypeName[]);
+      for (const member of result.team) {
+        const form = resolveForm(member, format);
+        if (!form) continue;
+        for (const name of member.moves.filter(Boolean)) {
+          const move = getMove(name);
+          if (!move || move.category === 'Status') continue;
+          const justified = moveIsJustified(move, {
+            types: form.types,
+            ability: form.ability,
+            gaps: allTypes,
+            weather: result.plan.weather,
+          });
+          if (!justified) {
+            fail(`${plan}/${member.species} runs ${move.name}: no STAB, no coverage, no rider`);
+          }
         }
       }
 
@@ -459,6 +497,13 @@ console.log('\n=== Champions availability ===');
     }
   }
   ok(`all ${BUILT_IN_THREATS.length} metagame Pokémon are legal in the app`);
+
+  // Reported: the drafter suggested Togekiss, which is not in Champions. It was in
+  // the confirmed list on nothing but recollection. Nothing may be in that list
+  // without a source, and this is the specific case that proved why.
+  if (rosterConfidence('Togekiss', format, null) === 'confirmed') {
+    fail('Togekiss is marked confirmed, but nothing sources it');
+  } else ok('unsourced species are not treated as confirmed');
 
   const open = getFormat('champs-open');
   if (rosterConfidence('Pawniard', open, null) === 'excluded') {

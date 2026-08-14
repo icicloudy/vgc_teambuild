@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react';
 import { STATS, STAT_NAMES } from '../types';
 import { natureLabel } from '../data/dex';
+import { ROSTER_SIZE } from '../data/champions';
+import { speciesCatalogue } from '../data/roster';
 import { PLANS } from '../engine/plans';
 import type { PlanId } from '../engine/plans';
 import { draftOne, draftTeam, missingParts } from '../engine/autobuild';
@@ -118,6 +120,15 @@ export function DraftPanel() {
     setResult(null);
   };
 
+  // What the drafter is actually allowed to pick from, shown plainly rather than
+  // left for you to discover when a suggestion turns out not to exist.
+  const draftablePool = useMemo(
+    () => speciesCatalogue(format, rosterOverride).filter(
+      (e) => e.confidence === 'confirmed' && !e.species.nfe && e.bst >= 430,
+    ).length,
+    [format, rosterOverride],
+  );
+
   const openSlots = format.bring - team.members.length;
   const unfinished = team.members.filter((m) => missingParts(m).length).length;
 
@@ -189,12 +200,23 @@ export function DraftPanel() {
         </div>
 
         {!result && (
-          <p className="muted small draft-hint">
-            The drafter scores every legal Pokémon against your team, then runs a full damage
-            matrix on the shortlist — so a pick has to beat the threats you are actually losing
-            to, not just look good on paper. It fills in moves, ability, item, Nature and Stat
-            Points too, and finishes any set you left half-done.
-          </p>
+          <>
+            <p className="muted small draft-hint">
+              The drafter scores every candidate against your team, then runs a full damage
+              matrix on the shortlist — so a pick has to beat the threats you are actually
+              losing to, not just look good on paper. It fills in moves, ability, item, Nature
+              and Stat Points too, and finishes any set you left half-done.
+            </p>
+            <p className="muted small draft-hint">
+              It only proposes Pokémon <strong>confirmed</strong> to be in Champions
+              {rosterOverride
+                ? ' — right now, the roster you imported.'
+                : `, which is ${draftablePool} of the roster's ${ROSTER_SIZE.species}. The
+                   full list is not published anywhere this app can read it, so the rest are
+                   selectable by hand but never suggested. Import your in-game roster from the
+                   Roster tab and the drafter uses exactly what you own.`}
+            </p>
+          </>
         )}
       </Section>
 

@@ -335,6 +335,18 @@ function movePool(species: string, ctx: SetContext): PoolEntry[] {
     if (!move) continue;
     if (ctx.format.bannedMoves.some((b) => toID(b) === move.id)) continue;
     if (RECHARGE.has(move.id) || SELF_KO.has(move.id) || CONDITIONAL.has(move.id)) continue;
+    /*
+     * Spread moves that hit your own partner (Earthquake, Surf, Sludge Wave) are
+     * strong, but only on a team built to ignore them — and the drafter picks
+     * slots one at a time, so it cannot promise what the last two teammates will
+     * be. Rather than hand you a set that is wrong depending on what comes next,
+     * it does not offer them at all. You can still pick them yourself, where you
+     * know who they are standing next to.
+     */
+    if (move.category !== 'Status' && move.target === 'allAdjacent' &&
+        ctx.format.gameType === 'Doubles') {
+      continue;
+    }
     if (TWO_TURN.has(move.id) && !chargedByWeather(move.id, ctx)) continue;
     const support = SUPPORT_VALUE[move.id] ?? 0;
     // A status move with no listed value is one the drafter has no use for; a
@@ -406,10 +418,80 @@ const TYPE_LIST: TypeName[] = [
   'Flying', 'Psychic', 'Bug', 'Rock', 'Ghost', 'Dragon', 'Dark', 'Steel', 'Fairy',
 ];
 
+/**
+ * Abilities that rewrite a move's type, and what they rewrite it to.
+ *
+ * This is why Sylveon's Hyper Voice is a Fairy move with STAB rather than a
+ * Normal one: Pixilate changes the type and adds 20% on top. Any judgement about
+ * a move's type has to be made after this, not before.
+ */
+const TYPE_CHANGING_ABILITY: Record<string, { from: string; to: string }> = {
+  pixilate: { from: 'Normal', to: 'Fairy' },
+  aerilate: { from: 'Normal', to: 'Flying' },
+  refrigerate: { from: 'Normal', to: 'Ice' },
+  galvanize: { from: 'Normal', to: 'Electric' },
+  normalize: { from: '*', to: 'Normal' },
+  liquidvoice: { from: 'Normal', to: 'Water' },
+};
+
+/** Weather Ball becomes the weather's type, and doubles in power while it is up. */
+const WEATHER_BALL_TYPE: Record<string, string> = {
+  Sun: 'Fire', 'Harsh Sunshine': 'Fire', Rain: 'Water', 'Heavy Rain': 'Water',
+  Sand: 'Rock', Snow: 'Ice',
+};
+
+/** The type a move actually lands as, once the Pokémon's ability has had its say. */
+export function effectiveMoveType(move: Move, ability: string): { type: string; boosted: boolean } {
+  const rule = TYPE_CHANGING_ABILITY[toID(ability)];
+  if (!rule) return { type: move.type, boosted: false };
+  if (rule.from !== '*' && move.type !== rule.from) return { type: move.type, boosted: false };
+  if (move.category === 'Status') return { type: move.type, boosted: false };
+  // Liquid Voice and Normalize do not add power; the -ate abilities do.
+  const boosted = toID(ability) !== 'normalize' && toID(ability) !== 'liquidvoice';
+  return { type: rule.to, boosted };
+}
+
+/** Which defending types this move hits for super-effective damage. */
+function hitsSuperEffectively(type: string, gaps: Set<TypeName>): boolean {
+  for (const def of gaps) if (effectiveness(type, [def]) >= 2) return true;
+  return false;
+}
+
+/** Power at which a move stops needing any other justification. */
+const OVERWHELMING_POWER = 130;
+
+/**
+ * Why is this damaging move on the set?
+ *
+ * It has to be one of: STAB (after any ability that rewrites its type), coverage
+ * the team does not otherwise have, a rider that does something beyond damage, or
+ * power high enough that the type stops mattering. A move with none of those is
+ * filler — the Double-Edge on a Gyarados that already has Waterfall and Crunch.
+ */
+export function moveIsJustified(
+  move: Move,
+  opts: { types: string[]; ability: string; gaps: Set<TypeName>; weather?: string },
+): boolean {
+  if (move.category === 'Status') return true;
+  const { type: firedType, boosted } = effectiveMoveType(move, opts.ability);
+  const weatherType = move.id === 'weatherball' && opts.weather
+    ? WEATHER_BALL_TYPE[opts.weather]
+    : undefined;
+  const fired = weatherType ?? firedType;
+  if (opts.types.includes(fired) || boosted || weatherType) return true;
+  if ((EFFECTIVE_POWER[move.id] ?? move.basePower) >= OVERWHELMING_POWER) return true;
+  if ((MOVE_RIDER[move.id] ?? 0) >= 14) return true;
+  // A damaging move that is on the set for its effect — Fake Out, Icy Wind,
+  // Nuzzle — is justified by the effect, not by the damage.
+  if ((SUPPORT_VALUE[move.id] ?? 0) >= 20) return true;
+  return hitsSuperEffectively(fired, opts.gaps);
+}
+
 function attackScore(
   entry: PoolEntry,
   opts: {
     types: string[];
+    ability: string;
     bias: 'physical' | 'special';
     stats: StatsTable;
     ctx: SetContext;
@@ -417,13 +499,21 @@ function attackScore(
   },
 ): number {
   const { move } = entry;
-  const { types, bias, stats, ctx, gaps } = opts;
+  const { types, ability, bias, stats, ctx, gaps } = opts;
   const power = EFFECTIVE_POWER[move.id] ?? move.basePower;
   // Accuracy hurts more than linearly: the game a 70% move loses is the whole game.
   const accuracy = move.accuracy === true ? 1 : Math.pow(Math.max(0.5, move.accuracy / 100), 1.5);
+  const effective = effectiveMoveType(move, ability);
+  let firedType = effective.type;
+  let boosted = effective.boosted;
+  if (move.id === 'weatherball' && ctx.plan.weather) {
+    firedType = WEATHER_BALL_TYPE[ctx.plan.weather] ?? firedType;
+    boosted = true;
+  }
 
   let score = power * accuracy;
-  if (types.includes(move.type)) score *= 1.5;
+  if (types.includes(firedType)) score *= 1.5;
+  if (boosted) score *= 1.2;
   if (ctx.format.gameType === 'Doubles') {
     if (move.target === 'allAdjacentFoes') {
       // Hits both opponents and nothing of yours.
@@ -435,10 +525,10 @@ function attackScore(
     }
   }
   if (move.priority > 0) score *= 1.12;
-  if (ctx.plan.weather === 'Sun' && move.type === 'Fire') score *= 1.4;
-  if (ctx.plan.weather === 'Sun' && move.type === 'Water') score *= 0.7;
-  if (ctx.plan.weather === 'Rain' && move.type === 'Water') score *= 1.4;
-  if (ctx.plan.weather === 'Rain' && move.type === 'Fire') score *= 0.7;
+  if (ctx.plan.weather === 'Sun' && firedType === 'Fire') score *= 1.4;
+  if (ctx.plan.weather === 'Sun' && firedType === 'Water') score *= 0.7;
+  if (ctx.plan.weather === 'Rain' && firedType === 'Water') score *= 1.4;
+  if (ctx.plan.weather === 'Rain' && firedType === 'Fire') score *= 0.7;
 
   // The stat that actually fires the move. Foul Play is the exception that proves
   // it: the damage comes off the *target's* Attack, so a strong attacker gains
@@ -450,14 +540,32 @@ function attackScore(
   if (move.id === 'foulplay' && stats.atk >= 105) score *= 0.5;
   if ((move.category === 'Physical') !== (bias === 'physical')) score *= 0.72;
 
-  score *= 0.6 + 0.4 * typeReach(move.type, ctx);
-  if (gaps.has(move.type as TypeName)) score += 22;
+  score *= 0.6 + 0.4 * typeReach(firedType, ctx);
+  const rider = MOVE_RIDER[move.id] ?? 0;
+  // Coverage means hitting a type the team cannot hit — which is a property of
+  // what the move is *super-effective against*, not of the move's own type. A
+  // Normal move covers nothing, however much the team lacks Normal attacks.
+  if (hitsSuperEffectively(firedType, gaps)) score += 22;
+
+  const justified = moveIsJustified(move, {
+    types, ability, gaps, weather: ctx.plan.weather,
+  });
+  if (!justified) score *= 0.45;
+
   // A move that halves its own attacking stat is worth less than its base power
   // suggests, because the second use is the one that matters.
   if (SELF_DEBUFF.has(move.id)) score *= 0.86;
   if (RECOIL.has(move.id)) score *= 0.85;
-  score += MOVE_RIDER[move.id] ?? 0;
+  score += rider;
   return score;
+}
+
+/** Does anything on the team put snow on the field? */
+function teamSetsSnow(ctx: SetContext): boolean {
+  return ctx.team.some((mate) => {
+    if (toID(resolveForm(mate, ctx.format)?.ability ?? '') === 'snowwarning') return true;
+    return mate.moves.some((m) => toID(m) === 'snowscape' || toID(m) === 'hail');
+  });
 }
 
 /**
@@ -513,6 +621,7 @@ function pickMoves(
   const types = form?.types ?? [];
   const stats = form?.baseStats ?? { hp: 80, atk: 80, def: 80, spa: 80, spd: 80, spe: 80 };
   const gaps = uncoveredTypes(ctx.team);
+  const ability = form?.ability ?? set.ability;
   const notes: string[] = [];
 
   const chosen: string[] = [...keep];
@@ -533,6 +642,8 @@ function pickMoves(
     // not a bonus, it is the two halves of the team fighting each other.
     .filter((p) => (p.move.id === 'trickroom' ? ctx.plan.tempo === 'slow' : true))
     .filter((p) => (p.move.id === 'tailwind' ? ctx.plan.tempo !== 'slow' : true))
+    // Aurora Veil fails outside snow, so it needs somebody on the team to set it.
+    .filter((p) => (p.move.id === 'auroraveil' ? teamSetsSnow(ctx) : true))
     .map((p) => {
       let value = p.support;
       // A damaging support move fires off an attacking stat. Icy Wind on a
@@ -582,33 +693,43 @@ function pickMoves(
   /* ---- 2. Attacks: best STAB, then the best coverage it adds --------- */
   const attacks = pool
     .filter((p) => p.move.category !== 'Status')
-    .map((p) => ({ entry: p, score: attackScore(p, { types, bias, stats, ctx, gaps }) }))
+    .map((p) => ({
+      entry: p,
+      score: attackScore(p, { types, ability, bias, stats, ctx, gaps }),
+      justified: moveIsJustified(p.move, { types, ability, gaps, weather: ctx.plan.weather }),
+    }))
     .sort((a, b) => b.score - a.score);
 
-  // Protect is the highest-value move in doubles; it gets a slot unless this is a
-  // bulky attacker that can plausibly run four attacks behind an Assault Vest.
-  const bulk = stats.hp + stats.def + stats.spd;
-  const wantProtect = !(archetype === 'attacker' && bulk >= 300) &&
-    pool.some((p) => p.support > 0 && ROLE_OF_MOVE[p.move.id] === 'protect');
-  const attackQuota = Math.max(
-    1,
-    4 - chosen.length - (wantProtect ? 1 : 0),
-  );
+  // Protect is the highest-value move in doubles and every set gets it. The old
+  // exemption for bulky attackers existed to leave room for four attacks behind an
+  // Assault Vest — and Champions has no Assault Vest, so nothing in this format
+  // pays you for dropping Protect.
+  const wantProtect = pool.some((p) => p.support > 0 && ROLE_OF_MOVE[p.move.id] === 'protect');
+  // Whatever is left after the role moves and the Protect slot, minus nothing:
+  // a role move like Fake Out is not an attack, and must not eat the attack
+  // budget the way it used to.
+  const attackQuota = Math.max(1, 4 - chosen.length - (wantProtect ? 1 : 0));
   const usedTypes = new Set<string>();
   for (const m of chosen) {
     const mv = getMove(m);
-    if (mv && mv.category !== 'Status') usedTypes.add(mv.type);
+    if (mv && mv.category !== 'Status') usedTypes.add(effectiveMoveType(mv, ability).type);
   }
 
-  let attacksTaken = usedTypes.size;
-  for (const { entry } of attacks) {
+  let attacksTaken = 0;
+  for (const { entry, justified } of attacks) {
     if (attacksTaken >= attackQuota || chosen.length >= 4) break;
-    if (usedTypes.has(entry.move.type)) continue;
+    if (!justified) continue;
+    const fired = effectiveMoveType(entry.move, ability).type;
+    if (usedTypes.has(fired)) continue;
     if (add(entry.move.name)) {
-      usedTypes.add(entry.move.type);
+      usedTypes.add(fired);
       attacksTaken++;
-      if (gaps.has(entry.move.type as TypeName)) {
-        notes.push(`${entry.move.name} — the team had no ${entry.move.type} coverage at all.`);
+      // Only claim coverage for the types it actually hits hard.
+      const covered = [...gaps].filter((g) => effectiveness(fired, [g]) >= 2);
+      if (covered.length) {
+        notes.push(
+          `${entry.move.name} — the only thing on the team that hits ${covered.slice(0, 3).join(', ')}.`,
+        );
       }
     }
   }
@@ -620,16 +741,20 @@ function pickMoves(
     .find(Boolean);
   if (chosen.length < 4 && protect) add(protect.move.name);
 
+  // Filling the last slot: a second-rate support move beats an unjustified attack.
+  // Avalugg with Recover is a Pokémon; Avalugg with a non-STAB Double-Edge that
+  // covers nothing is four moves and no plan.
+  if (chosen.length < 4) {
+    for (const cand of roleCandidates) {
+      if (chosen.length >= 4) break;
+      if (cand.value < 12) break;
+      add(cand.name);
+    }
+  }
   if (chosen.length < 4) {
     for (const { entry } of attacks) {
       if (chosen.length >= 4) break;
       add(entry.move.name);
-    }
-  }
-  if (chosen.length < 4) {
-    for (const cand of roleCandidates) {
-      if (chosen.length >= 4) break;
-      add(cand.name);
     }
   }
   while (chosen.length < 4) chosen.push('');

@@ -322,15 +322,23 @@ function moveIdsOf(species: string): Set<string> {
 function buildCandidates(
   format: FormatRules,
   override: RosterOverride | null,
-  spice: number,
 ): Candidate[] {
   const out: Candidate[] = [];
   for (const entry of speciesCatalogue(format, override)) {
     if (entry.confidence === 'excluded') continue;
     if (entry.species.nfe) continue;
-    // Unverified-roster Pokémon are only drafted when the dial asks for surprises,
-    // because "might not exist in Champions" is a worse failure than "predictable".
-    if (entry.confidence === 'unverified' && spice < 0.55) continue;
+    /*
+     * The drafter only proposes Pokémon that are *confirmed* to be in Champions.
+     *
+     * The roster is curated and not published in machine-readable form, so the
+     * app's "probably in the roster" tier is a guess — and a guess is fine on a
+     * badge next to a name you typed yourself, but not fine coming from a tool
+     * that says "add this to your team". Suggesting something that does not exist
+     * in the game wastes more of your time than a slightly narrower shortlist
+     * does. Import your in-game roster from the Roster panel and this opens up to
+     * exactly what you own.
+     */
+    if (entry.confidence !== 'confirmed') continue;
     if (entry.bst < 430) continue;
     out.push({
       species: entry.species,
@@ -712,7 +720,7 @@ export function draftTeam(input: DraftInput): DraftResult {
 
   /* ---- 2. Draft the empty slots ------------------------------------- */
   const banned = new Set(options.banned.map((b) => toID(b)));
-  const pool = buildCandidates(format, override, options.spice);
+  const pool = buildCandidates(format, override);
   const slotsToFill = Math.max(0, format.bring - team.length);
 
   for (let n = 0; n < slotsToFill; n++) {

@@ -64,8 +64,10 @@ Charizard @ Charizardite Y.
 already have, choose a game plan (or let it read your core and pick one), turn the spice
 dial, and it fills the rest: species, ability, item, Nature, four moves and a Stat Point
 spread, for every empty slot — and finishes any set you left half-done rather than
-replacing it. Every pick states its case in plain language ("answers Mega Charizard Y and
-Kingambit, which nothing on the team was beating"), lists the runners-up, and can be
+replacing it. It only proposes Pokémon *confirmed* to be in Champions, and says how many
+that is; import your in-game roster and it uses exactly what you own. Every pick states
+its case in plain language ("answers Mega Charizard Y and Kingambit, which nothing on the
+team was beating"), lists the runners-up, and can be
 turned down, in which case that Pokémon never comes back. A before/after read-out across
 six axes shows what the draft actually changed. Details below.
 
@@ -130,6 +132,13 @@ down to Quiet Natures and zero Speed investment. The spice dial gates the strang
 and widens the draw, so the difference between chalk and spice is a different *team*, not
 a worse one.
 
+**The drafter only suggests Pokémon that are confirmed to exist.** The roster is curated
+and not published in machine-readable form, so the app's "probably in the roster" tier is a
+guess. A guess is fine on a badge next to a name you typed; it is not fine coming from a
+tool that says "add this to your team". So the drafter draws only from the confirmed list —
+121 of the 208 — and the panel says so. Import your in-game roster and it opens up to
+exactly what you own.
+
 **"What is missing" is only answerable against the metagame.** Every candidate is scored
 on cheap structural terms first — resistances where your team is stacked weak, coverage
 nothing else brings, roles nobody fills, speed tiers you do not occupy, physical/special
@@ -141,16 +150,25 @@ decides the pick, and it is why the reasons quote real matchups.
 
 Set generation follows the same rule — every choice has to be derivable:
 
-- **Moves** — role moves first (the reason the Pokémon is there), then the best STAB, then
-  whichever coverage move fills a hole in the *team's* offense, then Protect. Accuracy is
-  punished super-linearly; recoil and self-debuff moves pay for what they cost; Foul Play is
-  priced off the target's Attack rather than the user's; and moves that need a promise the
-  drafter cannot keep (Focus Punch, Future Sight, three-turn lock-ins) are never offered.
+- **Moves** — every damaging move has to earn its slot one of four ways: **STAB** (measured
+  after any ability that rewrites its type, so Sylveon's Hyper Voice counts as Fairy),
+  **coverage** — meaning it hits a type the team cannot otherwise hit, which is a property
+  of what it is super-effective *against*, not of its own type, so a Normal move covers
+  nothing however few Normal attacks the team has — **a rider** that does something beyond
+  damage (Fake Out, Knock Off, U-turn, priority, Icy Wind), or **power high enough that the
+  type stops mattering** (Boomburst). A move with none of those is filler and is only used
+  to avoid leaving a slot empty. Beyond that: accuracy is punished super-linearly; recoil
+  and self-debuff moves pay for what they cost; Foul Play is priced off the target's Attack
+  rather than the user's; Protect goes on everything, because Champions has no Assault Vest
+  to pay you for dropping it; and moves that need a promise the drafter cannot keep — Focus
+  Punch, Future Sight, three-turn lock-ins, Aurora Veil with no snow — are never offered.
   Spread moves are split the way doubles splits them: `allAdjacentFoes` moves (Heat Wave,
   Rock Slide) get the two-target bonus, while `allAdjacent` moves that hit your own partner
-  too (Earthquake, Surf, Sludge Wave) only get it when every teammate is immune — otherwise
-  they are marked down. A damaging support move on the wrong attacking stat is marked down
-  as well, which is why a physical Pokémon gets Thunder Wave rather than Icy Wind.
+  (Earthquake, Surf, Sludge Wave) are not offered at all — they are good on a team built to
+  ignore them, and the drafter picks slots one at a time, so it cannot promise that. Pick
+  them yourself, where you know who they are standing next to. A damaging support move on
+  the wrong attacking stat is marked down too, which is why a physical Pokémon gets Thunder
+  Wave rather than Icy Wind.
 - **Stat Points** — the attacking stat, then Speed *priced against the threat list*: every
   point count from 0 to the budget is costed as "extra share of the metagame outrun" minus
   "bulk those points would have bought", so a slow Pokémon chasing a tier it cannot reach
