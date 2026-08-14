@@ -49,8 +49,6 @@ function isSelectable(s) {
   if (/-(Gmax|Totem)$/.test(s.name)) return false;
   // Cosplay and cap Pikachu: identical stats, cosmetic only.
   if (s.baseSpecies === 'Pikachu' || s.name === 'Pichu-Spiky-eared') return false;
-  // Never released. The dex carries it, no game has ever handed one out.
-  if (s.name === 'Floette-Eternal') return false;
   return true;
 }
 
@@ -146,10 +144,25 @@ async function mergedLearnset(species) {
   return out.sort((a, b) => a - b);
 }
 
+/**
+ * Moves the Gen 9 dex cannot tell us about, because it has no learnset for a
+ * species that never appeared in Scarlet/Violet. Eternal Flower Floette has had
+ * Light of Ruin as its signature move since XY, and Reg M-B ladder data shows it
+ * on 58% of them, so the gap is in the data rather than in the game.
+ */
+const EXTRA_LEARNSET = {
+  floetteeternal: ['lightofruin'],
+};
+
 const learnsets = {};
 for (const s of speciesById.values()) {
   if (!isSelectable(s)) continue; // only selectable formes are ever asked for
   learnsets[s.id] = await mergedLearnset(s);
+  for (const extra of EXTRA_LEARNSET[s.id] ?? []) {
+    const idx = moveIndex.get(extra);
+    if (idx !== undefined && !learnsets[s.id].includes(idx)) learnsets[s.id].push(idx);
+  }
+  learnsets[s.id].sort((a, b) => a - b);
 }
 
 /* ---------------- items, abilities, types, natures ---------------- */
@@ -163,7 +176,7 @@ const NO_BATTLE_EFFECT = new Set([
   // Evolution and trade items.
   'dawnstone', 'duskstone', 'firestone', 'icestone', 'leafstone', 'moonstone',
   'shinystone', 'sunstone', 'thunderstone', 'waterstone', 'ovalstone', 'dragonscale',
-  'metalcoat', 'prismscale', 'upgrade', 'dubiousdisc', 'protector', 'reapercloth',
+  'prismscale', 'upgrade', 'dubiousdisc', 'protector', 'reapercloth',
   'electirizer', 'magmarizer', 'metalalloy', 'auspiciousarmor', 'maliciousarmor',
   'chippedpot', 'crackedpot', 'masterpieceteacup', 'unremarkableteacup',
   'galaricacuff', 'galaricawreath', 'sweetapple', 'tartapple', 'syrupyapple',

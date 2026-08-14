@@ -1,18 +1,33 @@
 import { allItems, getSpecies, megasFor, toID } from './dex';
 import type { Item } from './dex';
+import { CHAMPIONS_ITEM_POOL, KNOWN_ABSENT_ITEMS } from './champions';
+import type { FormatRules } from '../types';
 
 /**
  * The item list, arranged the way a builder thinks about it.
  *
- * Two things are going on here. The dataset already drops anything a Champions
- * battle cannot use — evolution stones, Z-Crystals, fossils, the Gen 2 drawer,
- * the berries that only lower EVs (see `battleItem` in scripts/build-dataset.mjs).
- * This file handles the rest: grouping what remains, and putting the twenty or so
- * items that actually decide games at the top instead of leaving Absorb Bulb and
- * Assault Vest to argue it out alphabetically.
+ * Three filters stack. The dataset drops anything no battle can use — evolution
+ * stones, Z-Crystals, fossils, the Gen 2 drawer (see `battleItem` in
+ * scripts/build-dataset.mjs). This file then drops anything Champions itself does
+ * not ship, which is a much shorter list than the dex suggests: no Assault Vest,
+ * no Choice Band, no Weakness Policy. What survives is grouped, with the items
+ * that actually decide Regulation M-B games at the top instead of leaving Absorb
+ * Bulb and Aguav Berry to argue it out alphabetically.
  */
 
 export type ItemCategory = 'mega' | 'staple' | 'utility' | 'berry' | 'boost' | 'species';
+
+/** Is this item in the pool Champions actually ships? */
+export function inChampionsPool(item: Item): boolean {
+  return !!item.megaStone || CHAMPIONS_ITEM_POOL.has(item.id);
+}
+
+/** Why an item is unavailable, when we can say something specific. */
+export function itemAbsenceNote(itemName: string): string {
+  const id = toID(itemName);
+  return KNOWN_ABSENT_ITEMS[id] ??
+    `${itemName} is not in the Champions item pool for this regulation.`;
+}
 
 export const ITEM_CATEGORY_LABEL: Record<ItemCategory, string> = {
   mega: 'Mega Stone',
@@ -26,17 +41,15 @@ export const ITEM_CATEGORY_LABEL: Record<ItemCategory, string> = {
 const CATEGORY_ORDER: ItemCategory[] = ['mega', 'staple', 'utility', 'berry', 'boost', 'species'];
 
 /**
- * The items VGC actually runs, most common first. Hand-ordered: no usage
- * statistics exist for Champions, and this ordering is only a default — the
- * search box still finds anything by name.
+ * Ordered by what Regulation M-B ladder data actually shows on Pokémon, not by
+ * what a Scarlet/Violet player would expect: Sitrus and the resist berries carry
+ * this format, and the flat type boosters do the job Life Orb used to.
  */
 const STAPLES = [
-  'assaultvest', 'sitrusberry', 'focussash', 'choicescarf', 'safetygoggles',
-  'lifeorb', 'leftovers', 'covertcloak', 'clearamulet', 'choicespecs', 'choiceband',
-  'rockyhelmet', 'mentalherb', 'weaknesspolicy', 'lumberry', 'eviolite', 'widelens',
-  'lightclay', 'expertbelt', 'airballoon', 'ejectbutton', 'ejectpack', 'roomservice',
-  'loadeddice', 'punchingglove', 'throatspray', 'mirrorherb', 'powerherb', 'whiteherb',
-  'protectivepads', 'utilityumbrella', 'zoomlens', 'ironball',
+  'sitrusberry', 'focussash', 'lifeorb', 'leftovers', 'choicescarf', 'lumberry',
+  'mentalherb', 'whiteherb', 'safetygoggles', 'covertcloak', 'clearamulet',
+  'rockyhelmet', 'choicespecs', 'widelens', 'lightclay', 'muscleband', 'wiseglasses',
+  'zoomlens', 'damprock', 'heatrock', 'icyrock', 'smoothrock', 'eviolite',
 ];
 const STAPLE_RANK = new Map(STAPLES.map((id, i) => [id, i]));
 
@@ -71,7 +84,7 @@ export interface CatalogueEntry {
  * Mega Stones, and the species-locked items (Light Ball, Thick Club, the Orbs)
  * that do nothing in anyone else's hands.
  */
-export function itemCatalogue(species?: string): CatalogueEntry[] {
+export function itemCatalogue(species?: string, format?: FormatRules): CatalogueEntry[] {
   const stones = new Set(species ? megasFor(species).map((m) => m.stoneId) : []);
   const names = new Set<string>();
   if (species) {
@@ -82,9 +95,13 @@ export function itemCatalogue(species?: string): CatalogueEntry[] {
     for (const mega of megasFor(species)) names.add(toID(mega.forme));
   }
 
+  const restricted = (format?.itemPool ?? 'champions') === 'champions';
   const out: CatalogueEntry[] = [];
   for (const item of allItems()) {
     if (item.megaStone && !stones.has(item.id)) continue;
+    // Outside the sandbox format, only offer what the game ships. An item that
+    // cannot be equipped is worse than useless in a builder — it invents spreads.
+    if (restricted && !inChampionsPool(item)) continue;
     if (species && item.user?.length && !item.megaStone) {
       if (!item.user.some((u) => names.has(toID(u)))) continue;
     }

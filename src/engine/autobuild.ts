@@ -305,6 +305,11 @@ const ROLE_TEXT: Record<RoleKey, string> = {
   intimidate: 'Intimidate',
 };
 
+/** Abilities that are a net negative; a species with nothing else is unbuildable. */
+const ABILITY_PENALTY: Record<string, number> = {
+  truant: -1, slowstart: -1, defeatist: -1, stall: -1, klutz: -1, normalize: -1,
+};
+
 const learnsetIdCache = new Map<string, Set<string>>();
 function moveIdsOf(species: string): Set<string> {
   const cached = learnsetIdCache.get(species);
@@ -507,8 +512,15 @@ function cheapScore(cand: Candidate, ctx: ScoreContext): ScoreBreakdown {
 
   const megaBonus = !ctx.megaUsed && legalMegas(cand.species.name, ctx.format).length ? 34 : 0;
 
+  // A Pokémon whose only ability actively loses it the game is not a candidate,
+  // whatever its stat line says. Slaking has a 670 base stat total and Truant.
+  const bestAbility = Math.max(...cand.abilities.map((a) => ABILITY_PENALTY[toID(a)] ?? 0), 0);
+  const abilityDrag = bestAbility === 0 && cand.abilities.every((a) => ABILITY_PENALTY[toID(a)] !== undefined)
+    ? -150
+    : 0;
+
   return {
-    total: defense + offense + role + plan + speed + spice + megaBonus,
+    total: defense + offense + role + plan + speed + spice + megaBonus + abilityDrag,
     defense, offense, role, plan, speed, spice,
     patchedTypes: patched,
     newCoverage,

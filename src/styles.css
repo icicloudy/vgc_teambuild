@@ -129,9 +129,12 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 .slot-meta { font-size: 11px; color: var(--text-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .slot-moves { display: flex; flex-wrap: wrap; gap: 3px; margin-top: 4px; }
 .slot-move {
+  display: inline-flex; align-items: center; gap: 4px;
   font-size: 10px; padding: 1px 5px; border-radius: 4px;
   background: var(--bg-3); color: var(--text-2); border-left: 2px solid var(--line-2);
 }
+.slot-move .cat { font-size: 8px; padding: 0 3px; flex: 0 0 auto; }
+.slot-move { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
 .slot-side { display: flex; flex-direction: column; align-items: flex-end; justify-content: space-between; }
 .slot-tools { display: flex; gap: 2px; opacity: 0; transition: opacity .12s; }
 .slot:hover .slot-tools, .slot.is-selected .slot-tools { opacity: 1; }
@@ -592,6 +595,18 @@ select:focus, input:focus, textarea:focus { outline: none; border-color: var(--a
 .chip-plus { color: var(--accent); font-weight: 700; }
 
 .notes { width: 100%; resize: vertical; line-height: 1.5; }
+
+/* Move category: Physical / Special / Status, next to every move name. */
+.cat {
+  font-size: 9px; font-weight: 700; letter-spacing: .04em;
+  padding: 1px 4px; border-radius: 3px; border: 1px solid transparent;
+}
+.cat-physical { background: rgba(255, 122, 89, .16); color: #ff9d7d; border-color: rgba(255, 122, 89, .35); }
+.cat-special { background: rgba(94, 160, 255, .16); color: #8ec0ff; border-color: rgba(94, 160, 255, .35); }
+.cat-status { background: rgba(157, 170, 189, .14); color: var(--text-2); border-color: rgba(157, 170, 189, .3); }
+
+.move-chip { display: inline-flex; align-items: center; gap: 4px; }
+.move-chip-name { white-space: nowrap; }
 
 /* ---------------- draft table ---------------- */
 

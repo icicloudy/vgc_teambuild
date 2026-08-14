@@ -82,6 +82,11 @@ export interface FormatRules {
   /** Explicit mega-forme bans (e.g. event-locked megas). */
   bannedMegas: string[];
   bannedItems: string[];
+  /**
+   * 'champions' restricts held items to the pool the game actually ships (see
+   * data/champions.ts); 'all' allows anything in the dex.
+   */
+  itemPool: 'champions' | 'all';
   bannedMoves: string[];
   notes: string[];
   /** Provenance for every rule the app cannot verify offline. */

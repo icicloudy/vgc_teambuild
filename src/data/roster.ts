@@ -1,30 +1,30 @@
 import type { FormatRules, RosterConfidence, SpeciesCategory } from '../types';
 import { allSelectableSpecies, getSpecies, hasMega, megasFor, toID } from './dex';
 import type { Species } from './dex';
+import { CONFIRMED_SPECIES, NFE_EXCEPTIONS } from './champions';
 
 /**
  * Champions ships a curated roster (208 species / 75 Megas as of Reg M-B) rather
- * than the full National Dex. That list is not published in machine-readable form
- * and this app runs entirely offline, so the roster is modelled in three layers:
+ * than the full National Dex, and that list is not published in machine-readable
+ * form. So the roster is modelled in four layers, hardest evidence first:
  *
  *  1. Category rules from the regulation (no Legendary / Mythical / Paradox / …)
- *     — these are hard rules and produce legality *errors*.
- *  2. A confirmed set, derived from data we can actually verify: every species with
- *     a Champions Mega Stone, plus species named in official format coverage.
- *  3. Everything else — selectable, but badged "unverified" so you know to check
- *     it in-game.
+ *     — hard rules, and legality *errors*.
+ *  2. The roster is final-stage only, with a handful of known exceptions
+ *     (Pikachu, Eternal Flower Floette, Qwilfish). This one rule removes several
+ *     hundred species that could never be built, so it is an error too.
+ *  3. A confirmed set that can be cited: every species with a Champions Mega
+ *     Stone, everything in Reg M-B ladder usage data, and the Pokémon named in
+ *     the regulation announcements (see data/champions.ts).
+ *  4. Everything else — selectable, but badged, because the roster is curated and
+ *     "it is fully evolved and not a legendary" is not proof it is in the game.
  *
- * Paste the in-game list into the Roster panel to replace layers 2 and 3 with the
+ * Paste the in-game list into the Roster panel to replace layers 2-4 with the
  * real thing; it is stored locally and treated as authoritative from then on.
  */
 
-/** Species named directly in official/major coverage of Champions ranked play. */
-const REPORTED_IN_GAME = [
-  'Incineroar', 'Kingambit', 'Garchomp', 'Charizard', 'Metagross', 'Mawile', 'Swampert',
-  'Sceptile', 'Blaziken', 'Staraptor', 'Gengar', 'Tyranitar', 'Salamence', 'Venusaur',
-  'Blastoise', 'Greninja', 'Chesnaught', 'Delphox', 'Baxcalibur', 'Zeraora', 'Raichu',
-  'Absol', 'Lucario', 'Dragonite', 'Clefable',
-];
+/** Species named in official coverage or appearing in Reg M-B ladder data. */
+const REPORTED_IN_GAME = CONFIRMED_SPECIES;
 
 /** Species that are Mega-capable but are Legendary/Mythical, so absent from Champions. */
 const LEGENDARY_MEGA_BASES = [
@@ -105,6 +105,16 @@ export function categoryViolation(speciesName: string, format: FormatRules): Spe
   return null;
 }
 
+/**
+ * Is this a Pokémon that still evolves, and not one of the roster's known
+ * exceptions? Champions is a battling game: with a few deliberate exceptions it
+ * only carries final-stage Pokémon.
+ */
+export function isUnevolvedOffRoster(s: Species): boolean {
+  if (!s.nfe) return false;
+  return !NFE_EXCEPTIONS.some((n) => toID(n) === toID(s.name));
+}
+
 export function rosterConfidence(
   speciesName: string,
   format: FormatRules,
@@ -119,20 +129,23 @@ export function rosterConfidence(
   }
   if (format.id === 'champs-open') return 'confirmed';
   if (confirmedRoster().has(toID(speciesName))) return 'confirmed';
-  // A curated competitive roster realistically holds Pokémon that see doubles play or
-  // are simply strong. Showdown's doubles tier is a far better relevance signal than
-  // raw stats — it is what keeps Amoonguss and Torkoal out of the "unverified" bucket.
+  // The roster is final-stage only. This is the rule with the most reach: it takes
+  // the builder from "every Pokémon that ever existed" to something close to the
+  // 208 that are really there.
+  if (isUnevolvedOffRoster(s)) return 'excluded';
+  // Beyond that the roster is curated, and no rule predicts it. Showdown's doubles
+  // tier is the best available proxy for "the sort of Pokémon a battling game ships".
   const total = (Object.values(s.baseStats) as number[]).reduce((a, b) => a + b, 0);
   const playedInDoubles = ['DOU', 'DUU', 'DUber'].includes(s.doublesTier as string);
-  if (!s.nfe && (playedInDoubles || total >= 480)) return 'likely';
+  if (playedInDoubles || total >= 480) return 'likely';
   return 'unverified';
 }
 
 export const CONFIDENCE_LABEL: Record<RosterConfidence, string> = {
   confirmed: 'In roster',
-  likely: 'Likely in roster',
-  unverified: 'Unverified',
-  excluded: 'Not legal',
+  likely: 'Probably in roster',
+  unverified: 'Not confirmed in roster',
+  excluded: 'Not available',
 };
 
 export interface SpeciesEntry {

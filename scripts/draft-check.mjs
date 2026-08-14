@@ -85,6 +85,18 @@ check('every pick has a Nature', cardData.every((c) => /\(/.test(c.nature)));
 check('every pick has an item', cardData.every((c) => !/no item/.test(c.item)));
 check('every pick spends its Stat Points', cardData.every((c) => /6[0-6]\/66/.test(c.sp)));
 
+/* ---- every move says whether it is physical, special or status ---- */
+const categories = await page.evaluate(() => {
+  const chips = [...document.querySelectorAll('.draft-move')];
+  return {
+    total: chips.length,
+    labelled: chips.filter((c) => c.querySelector('.cat')).length,
+    kinds: [...new Set(chips.map((c) => c.querySelector('.cat')?.textContent))],
+  };
+});
+check('every move chip shows its category', categories.total > 0 && categories.labelled === categories.total);
+check('categories are distinguished', categories.kinds.length >= 2);
+
 /* ---- the shape read-out is before → after ---- */
 const shape = await page.evaluate(() => {
   const rows = [...document.querySelectorAll('.shape-row')];
@@ -156,7 +168,8 @@ const itemList = await page.evaluate(() => ({
 }));
 check('items are grouped by category', itemList.groups.length >= 3);
 check('commonly used items come first', /Commonly used/.test(itemList.groups[0] ?? ''));
-check('the staples are at the top', itemList.first.includes('Assault Vest'));
+check('the staples are at the top', itemList.first.includes('Sitrus Berry'));
+check('items Champions does not have are gone', !itemList.all.includes('Assault Vest'));
 check('dead items are gone (no evolution stones)', !itemList.all.includes('Fire Stone'));
 check('dead items are gone (no Poké Balls)', !itemList.all.some((i) => /Poke Ball|Ultra Ball/.test(i)));
 check('dead items are gone (no Z-Crystals)', !itemList.all.some((i) => / Z$/.test(i)));

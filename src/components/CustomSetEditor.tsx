@@ -6,7 +6,7 @@ import { ITEM_CATEGORY_LABEL, itemCatalogue } from '../data/items';
 import type { RosterOverride } from '../data/roster';
 import type { FormatRules } from '../types';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, resolveForm, spTotal } from '../engine/stats';
-import { Combobox, Field, TypeBadge } from './common';
+import { CategoryBadge, Combobox, Field, TypeBadge } from './common';
 import type { ComboOption } from './common';
 import { SpeciesPicker } from './SpeciesPicker';
 import { useLearnset } from './useLearnset';
@@ -29,14 +29,14 @@ export function CustomSetEditor({
   const remaining = MAX_SP_TOTAL - spent;
 
   const itemOptions = useMemo<ComboOption[]>(
-    () => itemCatalogue(set.species).map(({ item, category }) => ({
+    () => itemCatalogue(set.species, format).map(({ item, category }) => ({
       value: item.name,
       label: item.name,
       keywords: `${item.shortDesc} ${ITEM_CATEGORY_LABEL[category]}`,
       sublabel: <span className="muted small">{item.shortDesc}</span>,
       group: ITEM_CATEGORY_LABEL[category],
     })),
-    [set.species],
+    [set.species, format],
   );
 
   const moveOptions = useMemo<ComboOption[]>(
@@ -49,8 +49,9 @@ export function CustomSetEditor({
         sublabel: (
           <>
             <TypeBadge type={m.type} small />
+            <CategoryBadge category={m.category} />
             <span className="muted small">
-              {m.category === 'Status' ? 'Status' : `${m.basePower || '—'} BP`}
+              {m.category === 'Status' ? 'no damage' : `${m.basePower || '—'} BP`}
             </span>
           </>
         ),
@@ -148,7 +149,13 @@ export function CustomSetEditor({
             renderValue={(v) => {
               const mv = getMove(v);
               return mv
-                ? <span className="combo-selected"><TypeBadge type={mv.type} small />{mv.name}</span>
+                ? (
+                  <span className="combo-selected">
+                    <TypeBadge type={mv.type} small />
+                    <CategoryBadge category={mv.category} />
+                    {mv.name}
+                  </span>
+                )
                 : <span className="muted">Move {i + 1}</span>;
             }}
           />

@@ -17,6 +17,7 @@ const CHAMPIONS_COMMON = {
   teraAllowed: false,
   bannedItems: [] as string[],
   bannedMoves: [] as string[],
+  itemPool: 'champions' as const,
 };
 
 export const FORMATS: FormatRules[] = [
@@ -25,7 +26,7 @@ export const FORMATS: FormatRules[] = [
     id: 'champs-mb-doubles',
     name: 'Champions VGC — Regulation Set M-B (Doubles)',
     shortName: 'Reg M-B Doubles',
-    window: 'June 17 – September 2, 2026',
+    window: 'June 17 – September 9, 2026',
     active: true,
     gameType: 'Doubles',
     bring: 6,
@@ -40,17 +41,19 @@ export const FORMATS: FormatRules[] = [
       'You may carry several Mega Stones, but only one Pokémon may Mega Evolve per battle.',
       'No Restricted, Legendary, Mythical, Paradox or Treasures of Ruin Pokémon.',
       'Mega Lucario Z and Mega Garchomp Z are not legal in ranked play.',
+      'Held items are limited to the pool Champions ships: no Assault Vest, Choice Band or Weakness Policy.',
     ],
     sourceNotes:
-      'Rules per the Regulation Set M-B announcement (Pokémon.com / Serebii / Victory Road, June 2026). ' +
-      'The exact 208-species roster is not bundled — see the Roster panel.',
+      'Rules per the Regulation Set M-B announcement (Pokémon.com / Serebii / Victory Road, June 2026); ' +
+      'the window was extended to September 9 during the August 5 update. The 208-species roster is ' +
+      'not published in machine-readable form — see the Roster panel and data/champions.ts.',
   },
   {
     ...CHAMPIONS_COMMON,
     id: 'champs-mb-singles',
     name: 'Champions Ranked — Regulation Set M-B (Singles)',
     shortName: 'Reg M-B Singles',
-    window: 'June 17 – September 2, 2026',
+    window: 'June 17 – September 9, 2026',
     active: true,
     gameType: 'Singles',
     bring: 6,
@@ -104,8 +107,9 @@ export const FORMATS: FormatRules[] = [
     excludedCategories: [],
     bannedSpecies: [],
     bannedMegas: [],
+    itemPool: 'all',
     notes: [
-      'Every species and Mega in the data set is selectable — useful for theorycrafting ' +
+      'Every species, Mega and item in the data set is selectable — useful for theorycrafting ' +
       'future regulations or testing a matchup against something that is not currently legal.',
       'Clauses and the Level 50 rule still apply so damage numbers stay meaningful.',
     ],

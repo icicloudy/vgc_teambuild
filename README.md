@@ -111,6 +111,10 @@ that just beat you and it becomes part of the analysis.
 **Calculator** — either side can be a team member, a listed threat, or *any* Pokémon in the
 dex, with its own ability, item, nature, Stat Points and moves.
 
+Every move is labelled Physical / Special / Status wherever it appears — in the team rail,
+the draft cards, the pickers and the calculator — because in doubles that decides which
+defence it is measured against and whether Intimidate touches it.
+
 ---
 
 ## How the drafter decides
@@ -139,9 +143,14 @@ Set generation follows the same rule — every choice has to be derivable:
 
 - **Moves** — role moves first (the reason the Pokémon is there), then the best STAB, then
   whichever coverage move fills a hole in the *team's* offense, then Protect. Accuracy is
-  punished super-linearly, spread moves get their doubles bonus, Foul Play is priced off
-  the target's Attack rather than the user's, and moves that need a promise the drafter
-  cannot keep (Focus Punch, Future Sight, three-turn lock-ins) are never offered.
+  punished super-linearly; recoil and self-debuff moves pay for what they cost; Foul Play is
+  priced off the target's Attack rather than the user's; and moves that need a promise the
+  drafter cannot keep (Focus Punch, Future Sight, three-turn lock-ins) are never offered.
+  Spread moves are split the way doubles splits them: `allAdjacentFoes` moves (Heat Wave,
+  Rock Slide) get the two-target bonus, while `allAdjacent` moves that hit your own partner
+  too (Earthquake, Surf, Sludge Wave) only get it when every teammate is immune — otherwise
+  they are marked down. A damaging support move on the wrong attacking stat is marked down
+  as well, which is why a physical Pokémon gets Thunder Wave rather than Icy Wind.
 - **Stat Points** — the attacking stat, then Speed *priced against the threat list*: every
   point count from 0 to the budget is costed as "extra share of the metagame outrun" minus
   "bulk those points would have bought", so a slow Pokémon chasing a tier it cannot reach
@@ -150,9 +159,9 @@ Set generation follows the same rule — every choice has to be derivable:
   actually is.
 - **Nature** — decided *with* the Speed investment, not before it, since +Speed costs 10%
   of the attacking stat and has to buy meaningfully more of the field to be worth it.
-- **Item** — scored from the finished set (Assault Vest only with four attacks, Mental Herb
-  on the Trick Room setter, Light Clay behind screens), respecting Item Clause, with a
-  fallback chain so a slot is never left empty.
+- **Item** — scored from the finished set (Mental Herb on the Trick Room setter, Light Clay
+  behind screens, Focus Sash on the fast and frail), drawn only from the Champions item pool,
+  respecting Item Clause, with a fallback chain so a slot is never left empty.
 - **Ability** — chosen for the base forme, always: a set that Mega Evolves stores the
   pre-Mega ability, because Gardevoir cannot "have" Pixilate.
 
@@ -188,6 +197,14 @@ Reg M-A, an M-B Singles variant, and an unrestricted sandbox format are also inc
 Being straight about this, because a teambuilder that quietly guesses is worse than one that
 tells you where it is guessing:
 
+- **What is actually in Champions** — `src/data/champions.ts`, compiled by hand in
+  August 2026 from the Regulation M-B announcement, Pikalytics' Reg M-B ranked battle
+  data, and published item guides. It carries the item pool, the confirmed species, and
+  the roster's known exceptions, each with the reasoning next to it. This is the layer
+  that stops the app offering you things the game does not have — Assault Vest, Choice
+  Band and Weakness Policy are not in Champions, and a spread built around one is
+  unplayable however good the numbers look. It is also the layer most likely to go
+  stale: a new regulation will move it, and pasting your in-game roster overrides it.
 - **Species, moves, abilities, items, base stats, type chart, learnsets** — from `@pkmn/dex`,
   which already carries the Champions-era Mega Evolutions (Mega Staraptor with Contrary,
   Mega Baxcalibur, the `-Z` Megas, and the rest) with real stats and stone mappings.
@@ -210,16 +227,25 @@ tells you where it is guessing:
   function if it ever turns out otherwise.
 - **Regulation rules** — from the public Reg M-A / M-B announcements. Reliable, and enforced
   as hard errors.
-- **The species roster** — *approximate*. Champions ships a curated roster (208 species and
-  75 Megas as of Reg M-B) and that list is not published in any machine-readable form. So the
-  app splits legality in two: regulation rules are errors, roster membership is a note. Every
-  species with a Champions Mega Stone plus those named in official coverage are marked
-  "in roster"; the rest are selectable but badged. **Paste the in-game list into the Roster
-  tab and the guessing stops** — your list becomes authoritative for legality, the species
-  picker and the counter suggestions.
-- **Threat list and usage weights** — hand-picked for Reg M-B from format coverage, not
-  scraped ladder statistics (Champions publishes none). Treat it as a starting point and edit
-  it in the Metagame tab; everything downstream sharpens as it gets closer to your ladder.
+- **The species roster** — *partly verified*. Champions ships a curated roster (208 species
+  and 75 Megas as of Reg M-B) and that list is not published in machine-readable form, so the
+  app judges membership in four layers, hardest evidence first: regulation category rules
+  (errors); the roster is final-stage only, with Pikachu, Eternal Flower Floette and Qwilfish
+  as the known exceptions (also errors — this one rule removes several hundred Pokémon that
+  could never be built); a confirmed list that can be cited, from ladder data and the
+  regulation announcements; and everything else, selectable but badged, because "fully
+  evolved and not a legendary" is not proof it is in the game. **Paste the in-game list into
+  the Roster tab and the guessing stops.**
+- **Threat list and usage weights** — from Pikalytics' Champions Reg M-B Season 3 ranked
+  battle data (retrieved August 2026). The usage order is the real usage order and the moves,
+  items and abilities are the ones that actually appear, with the percentages recorded in each
+  entry's notes. Spreads are the exception: those are not published per Pokémon, so the Stat
+  Points are the app's reading of each set's job and are the part most worth editing. Anything
+  reconstructed rather than measured says so in its notes.
+- **The item pool** — *researched, not official*. Held items in Champions are bought with VP
+  in four tiers, and the pool is much smaller than the dex: the app ships 82 usable items
+  where the dex offers 578. Anything outside it is a warning, not an error, and the Open
+  sandbox format lifts the restriction entirely.
 - **The M-A roster split** from M-B could not be verified offline and is reconstructed from
   the reported M-B additions.
 - **Item list** — trimmed to what a Champions battle can use. The dex marks everything

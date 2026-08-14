@@ -3,7 +3,7 @@ import { getMove } from '../data/dex';
 import { displayName } from '../engine/calc';
 import { resolveForm } from '../engine/stats';
 import { useActiveTeam, useFormat, useStore } from '../store';
-import { Sprite, TypeBadge } from './common';
+import { CategoryBadge, Sprite, TypeBadge } from './common';
 
 export function TeamRail({ issues }: { issues: LegalityIssue[] }) {
   const team = useActiveTeam();
@@ -56,6 +56,7 @@ export function TeamRail({ issues }: { issues: LegalityIssue[] }) {
                     const move = getMove(m);
                     return (
                       <span key={k} className={`slot-move mv-${(move?.type ?? '').toLowerCase()}`}>
+                        {move && <CategoryBadge category={move.category} />}
                         {move?.name ?? m}
                       </span>
                     );

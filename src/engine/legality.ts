@@ -8,6 +8,7 @@ import type { RosterOverride } from '../data/roster';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, resolveForm, spTotal } from './stats';
 import { displayName } from './calc';
 import { plural } from '../text';
+import { inChampionsPool, itemAbsenceNote } from '../data/items';
 
 function issue(
   level: LegalityIssue['level'],
@@ -44,7 +45,15 @@ export function validateSet(
     out.push(issue('error', slot, 'banned', `${label} is banned in ${format.shortName}.`));
   } else {
     const conf = rosterConfidence(set.species, format, override);
-    if (conf === 'likely') {
+    if (conf === 'excluded') {
+      out.push(
+        issue('error', slot, 'roster-excluded',
+          override
+            ? `${label} is not on the roster you imported.`
+            : `${label} is not in Champions — the roster is final-stage Pokémon only.`,
+          'Pikachu, Eternal Flower Floette and Qwilfish are the known exceptions.'),
+      );
+    } else if (conf === 'likely') {
       out.push(
         issue('info', slot, 'roster-likely',
           `${label} passes every rule, but is not on the app's verified Champions roster.`,
@@ -97,6 +106,17 @@ export function validateSet(
   }
   if (set.item && format.bannedItems.some((i) => toID(i) === toID(set.item))) {
     out.push(issue('error', slot, 'banned-item', `${set.item} is banned in ${format.shortName}.`));
+  }
+  // Champions ships a curated item pool. Holding something outside it is not a
+  // rules violation — the item simply does not exist in the game — so it is a
+  // warning with a specific explanation rather than an error.
+  const heldItem = getItem(set.item);
+  if (heldItem && format.itemPool === 'champions' && !inChampionsPool(heldItem)) {
+    out.push(
+      issue('warning', slot, 'item-unavailable',
+        itemAbsenceNote(heldItem.name),
+        'Item availability is compiled by hand from published sources — see the Roster panel.'),
+    );
   }
 
   // --- moves ------------------------------------------------------------

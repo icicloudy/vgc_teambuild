@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { getSpecies, spriteUrl } from '../data/dex';
+import { getMove, getSpecies, spriteUrl } from '../data/dex';
 import { displayName } from '../engine/calc';
 
 /* ------------------------------------------------------------------ *
@@ -85,6 +85,34 @@ export function TypeBadge({ type, small = false }: { type: string; small?: boole
   if (!type) return null;
   return (
     <span className={`type type-${type.toLowerCase()} ${small ? 'type-sm' : ''}`}>{type}</span>
+  );
+}
+
+/**
+ * Physical / Special / Status. In doubles this decides which defence the move is
+ * measured against and whether Intimidate touches it, so it belongs next to every
+ * move name rather than only in the editor.
+ */
+export function CategoryBadge({ category }: { category: string }) {
+  if (!category) return null;
+  const short = category === 'Physical' ? 'PHY' : category === 'Special' ? 'SPE' : 'STA';
+  return (
+    <span className={`cat cat-${category.toLowerCase()}`} title={category}>{short}</span>
+  );
+}
+
+/** A move as it appears in a list: its type, its category, and its name. */
+export function MoveChip({
+  name, className = '',
+}: { name: string; className?: string }) {
+  const move = getMove(name);
+  if (!move) return <span className={`move-chip ${className}`}>{name}</span>;
+  return (
+    <span className={`move-chip ${className}`} title={move.shortDesc}>
+      <TypeBadge type={move.type} small />
+      <CategoryBadge category={move.category} />
+      <span className="move-chip-name">{move.name}</span>
+    </span>
   );
 }
 

@@ -17,11 +17,12 @@ import { exportTeam, importTeam } from '../src/engine/showdown.ts';
 import { minSPToSurvive, minSPToKO, minSPToOutspeed, survivalGrid } from '../src/engine/optimizer.ts';
 import { validateTeam } from '../src/engine/legality.ts';
 import { rosterConfidence } from '../src/data/roster.ts';
-import { itemCatalogue } from '../src/data/items.ts';
+import { itemCatalogue, inChampionsPool } from '../src/data/items.ts';
+import { NFE_EXCEPTIONS } from '../src/data/champions.ts';
 import { draftTeam, prepareThreats, teamShape } from '../src/engine/autobuild.ts';
 import type { PlanId } from '../src/engine/plans.ts';
 import { emptySet } from '../src/engine/showdown.ts';
-import { getNature } from '../src/data/dex.ts';
+import { getNature, effectiveness } from '../src/data/dex.ts';
 
 const format = getFormat('champs-mb-doubles');
 let failures = 0;
@@ -73,7 +74,6 @@ console.log('\n=== Roster coverage ===');
   // Two exceptions, both deliberate: a base forme you can never bring to a battle
   // cannot be a choice in the builder, Mega Stone or not.
   const NOT_BUILDABLE = new Set([
-    'floetteeternal',   // never released in any game
     'zygardecomplete',  // battle-only forme, reached from Zygarde
   ]);
   const selectable = new Set(allSelectableSpecies().map((s) => s.id));
@@ -125,7 +125,7 @@ console.log('\n=== Roster coverage ===');
 
 console.log('\n=== Damage calculation ===');
 {
-  const chomp = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'garchomp-sash')!, 50);
+  const chomp = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'garchomp-lo')!, 50);
   const incin = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'incineroar-support')!, 50);
   const field = defaultField('Doubles');
   const r = calcDamage(chomp, incin, 'Earthquake', format, field);
@@ -149,7 +149,7 @@ console.log('\n=== Damage calculation ===');
   if (!(dbl.max < single.max)) fail('Spread move was not reduced in doubles');
   else ok(`Earthquake spread reduction: ${single.max} → ${dbl.max}`);
 
-  const mawile = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'mawile-mega')!, 50);
+  const mawile = { ...emptySet('Mawile'), item: 'Mawilite', level: 50 };
   const mForm = resolveForm(mawile, format);
   if (mForm?.ability !== 'Huge Power') fail(`Mega Mawile ability was ${mForm?.ability}`);
   else ok('Mega Mawile picks up Huge Power');
@@ -173,7 +173,7 @@ console.log('\n=== Stat Points ===');
   // @smogon/calc clones both Pokémon inside calculate(), and clone() rebuilds stats
   // from EVs/IVs — so a spread must reach the calculator through something the clone
   // carries. If this regresses, every damage number silently uses uninvested stats.
-  const chompSet = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'garchomp-sash')!, 50);
+  const chompSet = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'garchomp-lo')!, 50);
   const base = { ...threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'incineroar-support')!, 50),
     sp: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } };
   const f = defaultField('Doubles');
@@ -226,7 +226,7 @@ console.log('\n=== Optimizer ===');
 {
   const field = defaultField('Doubles');
   const incin = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'incineroar-support')!, 50);
-  const chomp = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'garchomp-sash')!, 50);
+  const chomp = threatToSet(BUILT_IN_THREATS.find((t) => t.id === 'garchomp-lo')!, 50);
   const bare = { ...incin, sp: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } };
 
   const survive = minSPToSurvive({ defender: bare, attacker: chomp, move: 'Earthquake', format, field });
@@ -290,8 +290,8 @@ console.log('\n=== Legality ===');
   const team = {
     id: 't', name: 'test', formatId: format.id, notes: '', updatedAt: 0,
     members: [
-      threatToSet(BUILT_IN_THREATS[0], 50),
-      { ...threatToSet(BUILT_IN_THREATS[1], 50), item: 'Safety Goggles' },
+      { ...threatToSet(BUILT_IN_THREATS[0], 50), item: 'Sitrus Berry' },
+      { ...threatToSet(BUILT_IN_THREATS[1], 50), item: 'Sitrus Berry' },
     ],
   };
   for (const m of team.members) await loadLearnset(m.species);
@@ -364,6 +364,28 @@ console.log('\n=== Drafter ===');
         if (!getNature(member.nature)) fail(`${label} has an unknown Nature ${member.nature}`);
       }
 
+      // Every held item must exist in Champions, and no spread move may hit the
+      // team's own side unless every partner is immune to it.
+      for (const member of result.team) {
+        const item = getItem(member.item);
+        if (item && !inChampionsPool(item)) {
+          fail(`${plan}/${member.species} holds ${member.item}, which Champions does not have`);
+        }
+        for (const name of member.moves.filter(Boolean)) {
+          const move = getMove(name);
+          if (!move || move.target !== 'allAdjacent') continue;
+          const partners = result.team.filter((m) => m !== member);
+          const safe = partners.every((mate) => {
+            const form = resolveForm(mate, format);
+            if (!form) return false;
+            const ability = toID(form.ability);
+            if (ability === 'telepathy' || ability === 'levitate') return true;
+            return effectiveness(move.type, form.types) === 0;
+          });
+          if (!safe) fail(`${plan}/${member.species} runs ${move.name}, which hits its own partner`);
+        }
+      }
+
       // A Trick Room team must not invest in Speed, and must actually set the room.
       if (plan === 'trickroom') {
         if (result.team.some((m) => (m.sp.spe ?? 0) > 0)) fail('Trick Room plan bought Speed points');
@@ -408,6 +430,42 @@ console.log('\n=== Drafter ===');
   else ok(`team shape moves with the team (offense ${first.before.offense} → ${first.after.offense})`);
 }
 
+console.log('\n=== Champions availability ===');
+{
+  // The roster is final-stage only, with a handful of documented exceptions.
+  const nfeOffered = allSelectableSpecies().filter(
+    (sp) => sp.nfe && rosterConfidence(sp.name, format, null) !== 'excluded',
+  );
+  const unexpected = nfeOffered.filter(
+    (sp) => !NFE_EXCEPTIONS.some((n) => toID(n) === toID(sp.name)),
+  );
+  if (unexpected.length) {
+    fail(`unevolved Pokémon still count as legal: ${unexpected.slice(0, 5).map((sp) => sp.name).join(', ')}`);
+  } else {
+    ok(`unevolved Pokémon are excluded, except ${NFE_EXCEPTIONS.join(', ')}`);
+  }
+
+  // …and the exceptions really are legal, because they really are in the game.
+  for (const name of NFE_EXCEPTIONS) {
+    if (!getSpecies(name)) continue;
+    if (rosterConfidence(name, format, null) === 'excluded') fail(`${name} should be legal`);
+  }
+  ok('the roster exceptions are selectable');
+
+  // Everything with published Reg M-B usage must be legal in the app.
+  for (const t of BUILT_IN_THREATS) {
+    if (rosterConfidence(t.species, format, null) === 'excluded') {
+      fail(`${t.species} appears in ladder data but the app calls it illegal`);
+    }
+  }
+  ok(`all ${BUILT_IN_THREATS.length} metagame Pokémon are legal in the app`);
+
+  const open = getFormat('champs-open');
+  if (rosterConfidence('Pawniard', open, null) === 'excluded') {
+    fail('the sandbox format should not exclude anything');
+  } else ok('the sandbox format still allows everything');
+}
+
 console.log('\n=== Item catalogue ===');
 {
   const listed = itemCatalogue('Incineroar').map((e) => e.item.name);
@@ -416,16 +474,29 @@ console.log('\n=== Item catalogue ===');
   if (present.length) fail(`items with no battle use are still listed: ${present.join(', ')}`);
   else ok(`${listed.length} usable items listed (was ${allItems().length} before curation)`);
 
-  const staples = ['Assault Vest', 'Sitrus Berry', 'Focus Sash', 'Choice Scarf'];
+  const staples = ['Sitrus Berry', 'Focus Sash', 'Life Orb', 'Choice Scarf'];
   const firstTen = listed.slice(0, 10);
   if (!staples.every((s) => firstTen.includes(s))) fail(`staples are not at the top: ${firstTen.join(', ')}`);
   else ok('the items VGC actually runs come first');
 
-  if (itemCatalogue('Incineroar').some((e) => e.item.name === 'Light Ball')) {
+  const open = getFormat('champs-open');
+  if (itemCatalogue('Incineroar', open).some((e) => e.item.name === 'Light Ball')) {
     fail('species-locked items are offered to the wrong species');
-  } else if (!itemCatalogue('Pikachu').some((e) => e.item.name === 'Light Ball')) {
+  } else if (!itemCatalogue('Pikachu', open).some((e) => e.item.name === 'Light Ball')) {
     fail('Light Ball is missing from Pikachu');
   } else ok('species-locked items only appear on the species that uses them');
+
+  // Champions ships a curated item pool; the sandbox format is the escape hatch.
+  const championsPool = itemCatalogue('Incineroar').map((e) => e.item.name);
+  const absent = ['Assault Vest', 'Choice Band', 'Weakness Policy', 'Expert Belt'];
+  const leaked = absent.filter((n) => championsPool.includes(n));
+  if (leaked.length) fail(`items Champions does not have are still offered: ${leaked.join(', ')}`);
+  else ok(`item pool restricted to Champions (${championsPool.length} items; sandbox shows ${itemCatalogue('Incineroar', open).length})`);
+
+  for (const needed of ['Sitrus Berry', 'Focus Sash', 'Life Orb', 'Choice Scarf', 'Fairy Feather', 'Chople Berry', 'White Herb', 'Damp Rock']) {
+    if (!championsPool.includes(needed)) fail(`${needed} is used on ladder but missing from the pool`);
+  }
+  ok('every item seen in Reg M-B ladder data is in the pool');
 
   const zardStones = itemCatalogue('Charizard').filter((e) => e.category === 'mega');
   if (zardStones.length !== 2) fail(`Charizard should see 2 Mega Stones, saw ${zardStones.length}`);

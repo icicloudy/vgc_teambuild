@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { STATS, STAT_NAMES } from '../types';
-import { getMove, natureLabel } from '../data/dex';
+import { natureLabel } from '../data/dex';
 import { PLANS } from '../engine/plans';
 import type { PlanId } from '../engine/plans';
 import { draftOne, draftTeam, missingParts } from '../engine/autobuild';
@@ -9,7 +9,7 @@ import { displayName } from '../engine/calc';
 import { resolveForm, spTotal } from '../engine/stats';
 import { newId } from '../engine/showdown';
 import { useActiveTeam, useEnabledThreats, useFormat, useStore } from '../store';
-import { Pill, Section, Sprite, TypeBadge } from './common';
+import { MoveChip, Pill, Section, Sprite, TypeBadge } from './common';
 import { ShapeBars } from './TeamShape';
 import { plural } from '../text';
 
@@ -286,15 +286,9 @@ function PickCard({
 
       <div className="draft-set">
         <div className="draft-moves">
-          {pick.set.moves.filter(Boolean).map((m) => {
-            const move = getMove(m);
-            return (
-              <span className="draft-move" key={m}>
-                {move && <TypeBadge type={move.type} small />}
-                {m}
-              </span>
-            );
-          })}
+          {pick.set.moves.filter(Boolean).map((m) => (
+            <MoveChip key={m} name={m} className="draft-move" />
+          ))}
         </div>
         <div className="draft-spread">
           <span className="muted small">{natureLabel(pick.set.nature)}</span>

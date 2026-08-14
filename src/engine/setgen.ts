@@ -5,6 +5,7 @@ import {
 } from '../data/dex';
 import type { Move, TypeName } from '../data/dex';
 import { legalMegas } from '../data/roster';
+import { inChampionsPool } from './../data/items';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, resolveForm, statAt } from './stats';
 import { computeSpeed, defaultScenario } from './speed';
 import { emptySet } from './showdown';
@@ -128,6 +129,13 @@ const EFFECTIVE_POWER: Record<string, number> = {
 const SELF_DEBUFF = new Set([
   'overheat', 'dracometeor', 'leafstorm', 'makeitrain', 'spinout', 'psychoboost',
   'superpower', 'closecombat', 'vcreate', 'hyperspacefury', 'clangoroussoul',
+]);
+
+/** Recoil moves: the damage is real, and so is the chip you take for it. */
+const RECOIL = new Set([
+  'doubleedge', 'flareblitz', 'bravebird', 'wildcharge', 'woodhammer', 'headsmash',
+  'volttackle', 'submission', 'takedown', 'headcharge', 'lightofruin', 'wavecrash',
+  'headlongrush', 'chloroblast',
 ]);
 
 /** Moves that pull their weight beyond raw damage (utility riders). */
@@ -416,9 +424,15 @@ function attackScore(
 
   let score = power * accuracy;
   if (types.includes(move.type)) score *= 1.5;
-  if (ctx.format.gameType === 'Doubles' &&
-      (move.target === 'allAdjacent' || move.target === 'allAdjacentFoes')) {
-    score *= 1.3;
+  if (ctx.format.gameType === 'Doubles') {
+    if (move.target === 'allAdjacentFoes') {
+      // Hits both opponents and nothing of yours.
+      score *= 1.3;
+    } else if (move.target === 'allAdjacent') {
+      // Earthquake, Surf, Discharge, Sludge Wave: these hit your own partner too.
+      // Worth it only when the rest of the team does not care.
+      score *= partnersImmuneTo(move, ctx) ? 1.3 : 0.7;
+    }
   }
   if (move.priority > 0) score *= 1.12;
   if (ctx.plan.weather === 'Sun' && move.type === 'Fire') score *= 1.4;
@@ -441,8 +455,47 @@ function attackScore(
   // A move that halves its own attacking stat is worth less than its base power
   // suggests, because the second use is the one that matters.
   if (SELF_DEBUFF.has(move.id)) score *= 0.86;
+  if (RECOIL.has(move.id)) score *= 0.85;
   score += MOVE_RIDER[move.id] ?? 0;
   return score;
+}
+
+/**
+ * Abilities that make a teammate ignore an ally's spread move.
+ */
+const ALLY_IMMUNITY: Record<string, string[]> = {
+  levitate: ['Ground'],
+  eartheater: ['Ground'],
+  waterabsorb: ['Water'],
+  stormdrain: ['Water'],
+  dryskin: ['Water'],
+  voltabsorb: ['Electric'],
+  lightningrod: ['Electric'],
+  motordrive: ['Electric'],
+  sapsipper: ['Grass'],
+  flashfire: ['Fire'],
+  wellbakedbody: ['Fire'],
+  windrider: ['Flying'],
+};
+
+/**
+ * Would this spread move go through your own side?
+ *
+ * `allAdjacent` moves hit the partner as well as both opponents, which is why
+ * Earthquake teams are built out of Flying types and Levitate — and why handing
+ * Sludge Wave to a Pokémon standing next to a Grass partner is a mistake a
+ * teambuilder should not make for you.
+ */
+function partnersImmuneTo(move: Move, ctx: SetContext): boolean {
+  if (!ctx.team.length) return false;
+  return ctx.team.every((mate) => {
+    const form = resolveForm(mate, ctx.format);
+    if (!form) return false;
+    const ability = toID(form.ability);
+    if (ability === 'telepathy') return true;
+    if ((ALLY_IMMUNITY[ability] ?? []).includes(move.type)) return true;
+    return effectiveness(move.type, form.types) === 0;
+  });
 }
 
 function pickMoves(
@@ -482,6 +535,13 @@ function pickMoves(
     .filter((p) => (p.move.id === 'tailwind' ? ctx.plan.tempo !== 'slow' : true))
     .map((p) => {
       let value = p.support;
+      // A damaging support move fires off an attacking stat. Icy Wind on a
+      // physical attacker is a 55-power special move from an uninvested SpA —
+      // the speed drop still lands, but Thunder Wave does the same job for free.
+      if (p.move.category !== 'Status' &&
+          (p.move.category === 'Physical') !== (bias === 'physical')) {
+        value *= 0.6;
+      }
       const key = ROLE_OF_MOVE[p.move.id];
       if (key) {
         value *= ctx.plan.roleWeights[key] ?? 1;
@@ -763,10 +823,14 @@ function pickItem(
     { name: 'Eject Button', score: archetype === 'wall' ? 20 + ctx.spice * 26 : -1 },
   ];
 
-  const available = (name: string) =>
-    !used.has(toID(name)) &&
-    !!getItem(name) &&
-    !ctx.format.bannedItems.some((b) => toID(b) === toID(name));
+  const available = (name: string) => {
+    const item = getItem(name);
+    if (!item || used.has(toID(name))) return false;
+    if (ctx.format.bannedItems.some((b) => toID(b) === toID(name))) return false;
+    // Champions ships a curated item pool. Handing out an Assault Vest the game
+    // does not have is the fastest way to make a whole spread unusable.
+    return ctx.format.itemPool !== 'champions' || inChampionsPool(item);
+  };
 
   const pick = candidates
     .filter((c) => c.score > 0)

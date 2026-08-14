@@ -10,7 +10,7 @@ import { CONFIDENCE_LABEL, legalMegas, rosterConfidence } from '../data/roster';
 import { displayName } from '../engine/calc';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, computeStats, resolveForm, spTotal } from '../engine/stats';
 import { useActiveTeam, useFormat, useStore } from '../store';
-import { Combobox, Field, Pill, Section, Sprite, StatBar, TypeBadge } from './common';
+import { CategoryBadge, Combobox, Field, Pill, Section, Sprite, StatBar, TypeBadge } from './common';
 import type { ComboOption } from './common';
 import { OptimizerPanel } from './Optimizer';
 import { SlotMatchupPreview } from './SlotMatchupPreview';
@@ -50,14 +50,14 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
   const allMegas = useMemo(() => megasFor(member?.species ?? ''), [member?.species]);
 
   const itemOptions: ComboOption[] = useMemo(
-    () => itemCatalogue(member?.species ?? '').map(({ item, category }) => ({
+    () => itemCatalogue(member?.species ?? '', format).map(({ item, category }) => ({
       value: item.name,
       label: item.name,
       keywords: `${item.shortDesc} ${ITEM_CATEGORY_LABEL[category]}`,
       sublabel: <span className="muted small">{item.shortDesc}</span>,
       group: ITEM_CATEGORY_LABEL[category],
     })),
-    [member?.species],
+    [member?.species, format],
   );
 
   const moveOptions: ComboOption[] = useMemo(() => {
@@ -71,8 +71,9 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
         sublabel: (
           <>
             <TypeBadge type={m.type} small />
+            <CategoryBadge category={m.category} />
             <span className="muted small">
-              {m.category === 'Status' ? 'Status' : `${m.basePower || '—'} BP`}
+              {m.category === 'Status' ? 'no damage' : `${m.basePower || '—'} BP`}
               {' · '}{m.accuracy === true ? '—' : `${m.accuracy}%`}
               {m.target === 'allAdjacentFoes' || m.target === 'allAdjacent' ? ' · spread' : ''}
               {m.priority !== 0 ? ` · pri ${m.priority > 0 ? '+' : ''}${m.priority}` : ''}
