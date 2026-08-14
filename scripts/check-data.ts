@@ -17,6 +17,11 @@ import { exportTeam, importTeam } from '../src/engine/showdown.ts';
 import { minSPToSurvive, minSPToKO, minSPToOutspeed, survivalGrid } from '../src/engine/optimizer.ts';
 import { validateTeam } from '../src/engine/legality.ts';
 import { rosterConfidence } from '../src/data/roster.ts';
+import { itemCatalogue } from '../src/data/items.ts';
+import { draftTeam, prepareThreats, teamShape } from '../src/engine/autobuild.ts';
+import type { PlanId } from '../src/engine/plans.ts';
+import { emptySet } from '../src/engine/showdown.ts';
+import { getNature } from '../src/data/dex.ts';
 
 const format = getFormat('champs-mb-doubles');
 let failures = 0;
@@ -65,17 +70,33 @@ console.log('\n=== Roster coverage ===');
   // The dex marks anything absent from Scarlet/Violet as "Past", which covers 22
   // Mega base species and every legacy Mega Stone. Champions is fed from HOME and
   // is built around those Megas, so they must all be reachable in the builder.
+  // Two exceptions, both deliberate: a base forme you can never bring to a battle
+  // cannot be a choice in the builder, Mega Stone or not.
+  const NOT_BUILDABLE = new Set([
+    'floetteeternal',   // never released in any game
+    'zygardecomplete',  // battle-only forme, reached from Zygarde
+  ]);
   const selectable = new Set(allSelectableSpecies().map((s) => s.id));
   const missing = [];
-  for (const s of allSelectableSpecies()) void s;
   const stones = allItems().filter((i) => i.megaStone);
-  const bases = new Set();
+  const bases = new Set<string>();
   for (const stone of stones) for (const b of Object.keys(stone.megaStone!)) bases.add(toID(b));
   for (const b of bases) {
-    if (!selectable.has(b as string)) missing.push(b);
+    if (!selectable.has(b) && !NOT_BUILDABLE.has(b)) missing.push(b);
   }
   if (missing.length) fail(`Mega base species not selectable: ${missing.join(', ')}`);
-  else ok(`all ${bases.size} Mega base species are selectable`);
+  else ok(`all ${bases.size - NOT_BUILDABLE.size} Mega base species are selectable`);
+
+  // Nothing that only exists mid-battle, or only while an item is held, may be
+  // offered as a team member.
+  const unbuildable = allSelectableSpecies().filter(
+    (s) => /-(Gmax|Totem)$/.test(s.name) || !!s.requiredItem,
+  );
+  if (unbuildable.length) {
+    fail(`battle-only formes are selectable: ${unbuildable.slice(0, 6).map((s) => s.name).join(', ')}`);
+  } else {
+    ok('no Gigantamax, Totem or item-locked formes in the builder');
+  }
 
   for (const name of ['Mawile', 'Kangaskhan', 'Absol', 'Steelix', 'Alakazam']) {
     if (!getSpecies(name)) fail(`${name} is missing from the dataset`);
@@ -286,6 +307,129 @@ console.log('\n=== Legality ===');
   const catIssue = validateTeam(illegal, format, null).find((i) => i.code === 'category');
   if (!catIssue) fail('restricted legendary not rejected');
   else ok(`restricted rejected: ${catIssue.message}`);
+}
+
+console.log('\n=== Drafter ===');
+{
+  const field = defaultField('Doubles');
+  const plans: (PlanId | 'auto')[] = ['auto', 'balance', 'trickroom', 'sun', 'rain', 'bulky', 'tailwind'];
+  let drafted = 0;
+
+  for (const plan of plans) {
+    // Every plan gets one draft from nothing and one that has to work around a core.
+    for (const seed of [1, 2, 3, 4]) {
+      const start = seed % 2 === 0
+        ? [{ ...emptySet(seed === 2 ? 'Torkoal' : 'Incineroar'), level: 50 }]
+        : [];
+      const result = draftTeam({
+        team: start,
+        format,
+        threats: BUILT_IN_THREATS,
+        field,
+        override: null,
+        options: { plan, spice: seed / 5, banned: [], seed },
+      });
+
+      if (result.team.length !== format.bring) {
+        fail(`${plan}: drafted ${result.team.length} of ${format.bring}`);
+      }
+
+      const team = {
+        id: 'd', name: 'draft', formatId: format.id, members: result.team, notes: '', updatedAt: 0,
+      };
+      for (const issue of validateTeam(team, format, null)) {
+        if (issue.level === 'error') fail(`${plan}: ${issue.message}`);
+      }
+
+      for (const member of result.team) {
+        const label = `${plan}/${member.species}`;
+        const learnset = await loadLearnset(member.species);
+        for (const move of member.moves.filter(Boolean)) {
+          if (!learnset.some((l) => toID(l) === toID(move))) fail(`${label} cannot learn ${move}`);
+        }
+        if (member.moves.filter(Boolean).length !== 4) fail(`${label} has an empty move slot`);
+        if (!member.item) fail(`${label} has no item`);
+        // The ability must be legal on the *base* forme: the Mega's ability is
+        // applied by resolveForm, never stored.
+        if (!abilitiesFor(member.species).some((a) => toID(a) === toID(member.ability))) {
+          fail(`${label} cannot have ${member.ability}`);
+        }
+        if (spTotal(member.sp) > MAX_SP_TOTAL) fail(`${label} spends ${spTotal(member.sp)} points`);
+        if (STATS.some((s) => (member.sp[s] ?? 0) > MAX_SP_PER_STAT)) {
+          fail(`${label} exceeds the per-stat cap`);
+        }
+        if (spTotal(member.sp) < MAX_SP_TOTAL - 4) {
+          fail(`${label} left ${MAX_SP_TOTAL - spTotal(member.sp)} points unspent`);
+        }
+        if (!getNature(member.nature)) fail(`${label} has an unknown Nature ${member.nature}`);
+      }
+
+      // A Trick Room team must not invest in Speed, and must actually set the room.
+      if (plan === 'trickroom') {
+        if (result.team.some((m) => (m.sp.spe ?? 0) > 0)) fail('Trick Room plan bought Speed points');
+        if (!result.team.some((m) => m.moves.some((x) => toID(x) === 'trickroom'))) {
+          fail('Trick Room plan drafted nobody who sets Trick Room');
+        }
+      }
+      drafted++;
+    }
+  }
+  ok(`${drafted} drafts across ${plans.length} plans produce legal, complete, fully-invested teams`);
+
+  // The drafter must finish a half-built Pokémon rather than replace it.
+  const partial = { ...emptySet('Amoonguss'), level: 50 };
+  const finished = draftTeam({
+    team: [partial], format, threats: BUILT_IN_THREATS, field, override: null,
+    options: { plan: 'balance', spice: 0.2, banned: [], seed: 5 },
+  });
+  const kept = finished.team[0];
+  if (kept.species !== 'Amoonguss') fail('drafter replaced the Pokémon it was asked to finish');
+  else if (kept.moves.filter(Boolean).length !== 4 || !kept.item) fail('drafter left the set unfinished');
+  else ok(`half-built sets are completed in place (${kept.species} @ ${kept.item}: ${kept.moves.join(', ')})`);
+
+  // A banned species never comes back.
+  const first = draftTeam({
+    team: [], format, threats: BUILT_IN_THREATS, field, override: null,
+    options: { plan: 'balance', spice: 0.3, banned: [], seed: 9 },
+  });
+  const rejected = first.team[0].species;
+  const second = draftTeam({
+    team: [], format, threats: BUILT_IN_THREATS, field, override: null,
+    options: { plan: 'balance', spice: 0.3, banned: [rejected], seed: 9 },
+  });
+  if (second.team.some((m) => toID(m.species) === toID(rejected))) {
+    fail(`${rejected} was drafted again after being turned down`);
+  } else ok(`turning down ${rejected} keeps it out of the next draft`);
+
+  // Shape is a measurement, not a decoration: adding Pokémon must move it.
+  const empty = teamShape([], prepareThreats(BUILT_IN_THREATS, format), format, field);
+  if (Object.values(empty).some((v) => v !== 0)) fail('empty team has a non-zero shape');
+  if (first.after.offense <= first.before.offense) fail('drafting a full team did not improve offense');
+  else ok(`team shape moves with the team (offense ${first.before.offense} → ${first.after.offense})`);
+}
+
+console.log('\n=== Item catalogue ===');
+{
+  const listed = itemCatalogue('Incineroar').map((e) => e.item.name);
+  const dead = ['Fire Stone', 'Poke Ball', 'Ultra Ball', 'Berry Sweet', 'Pomeg Berry', 'Bug Gem'];
+  const present = dead.filter((n) => listed.includes(n));
+  if (present.length) fail(`items with no battle use are still listed: ${present.join(', ')}`);
+  else ok(`${listed.length} usable items listed (was ${allItems().length} before curation)`);
+
+  const staples = ['Assault Vest', 'Sitrus Berry', 'Focus Sash', 'Choice Scarf'];
+  const firstTen = listed.slice(0, 10);
+  if (!staples.every((s) => firstTen.includes(s))) fail(`staples are not at the top: ${firstTen.join(', ')}`);
+  else ok('the items VGC actually runs come first');
+
+  if (itemCatalogue('Incineroar').some((e) => e.item.name === 'Light Ball')) {
+    fail('species-locked items are offered to the wrong species');
+  } else if (!itemCatalogue('Pikachu').some((e) => e.item.name === 'Light Ball')) {
+    fail('Light Ball is missing from Pikachu');
+  } else ok('species-locked items only appear on the species that uses them');
+
+  const zardStones = itemCatalogue('Charizard').filter((e) => e.category === 'mega');
+  if (zardStones.length !== 2) fail(`Charizard should see 2 Mega Stones, saw ${zardStones.length}`);
+  else ok('only this Pokémon\'s own Mega Stones are offered');
 }
 
 console.log('\n=== Formats ===');

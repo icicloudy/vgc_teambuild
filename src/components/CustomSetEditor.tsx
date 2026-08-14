@@ -1,9 +1,8 @@
 import { useMemo } from 'react';
 import type { PokemonSet, StatID } from '../types';
 import { STATS, STAT_NAMES } from '../types';
-import {
-  NATURES, abilitiesFor, allItems, getMove, megasFor, natureLabel,
-} from '../data/dex';
+import { NATURES, abilitiesFor, getMove, natureLabel } from '../data/dex';
+import { ITEM_CATEGORY_LABEL, itemCatalogue } from '../data/items';
 import type { RosterOverride } from '../data/roster';
 import type { FormatRules } from '../types';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, resolveForm, spTotal } from '../engine/stats';
@@ -29,17 +28,16 @@ export function CustomSetEditor({
   const spent = spTotal(set.sp);
   const remaining = MAX_SP_TOTAL - spent;
 
-  const itemOptions = useMemo<ComboOption[]>(() => {
-    const stones = new Set(megasFor(set.species).map((m) => m.stoneId));
-    return allItems()
-      .filter((i) => !i.megaStone || stones.has(i.id))
-      .map((i) => ({
-        value: i.name,
-        label: i.name,
-        keywords: i.shortDesc,
-        sublabel: <span className="muted small">{i.shortDesc}</span>,
-      }));
-  }, [set.species]);
+  const itemOptions = useMemo<ComboOption[]>(
+    () => itemCatalogue(set.species).map(({ item, category }) => ({
+      value: item.name,
+      label: item.name,
+      keywords: `${item.shortDesc} ${ITEM_CATEGORY_LABEL[category]}`,
+      sublabel: <span className="muted small">{item.shortDesc}</span>,
+      group: ITEM_CATEGORY_LABEL[category],
+    })),
+    [set.species],
+  );
 
   const moveOptions = useMemo<ComboOption[]>(
     () => learnset.map((name) => {

@@ -6,6 +6,7 @@ import { useActiveTeam, useFormat, useStore } from './store';
 import type { TabId } from './store';
 import { TeamRail } from './components/TeamRail';
 import { SlotEditor } from './components/SlotEditor';
+import { DraftPanel } from './components/DraftPanel';
 import { CalcPanel } from './components/CalcPanel';
 import { ThreatMatrixPanel } from './components/ThreatMatrixPanel';
 import { SpeedPanel } from './components/SpeedPanel';
@@ -18,6 +19,7 @@ import { Pill } from './components/common';
 
 const TABS: { id: TabId; label: string; hint: string }[] = [
   { id: 'build', label: 'Build', hint: 'Edit the selected Pokémon' },
+  { id: 'draft', label: 'Draft', hint: 'Let the app finish the team for you' },
   { id: 'calc', label: 'Calculator', hint: 'Full damage calculator' },
   { id: 'threats', label: 'Threat matrix', hint: 'Every matchup against the metagame' },
   { id: 'speed', label: 'Speed', hint: 'Speed tiers and benchmarks' },
@@ -130,6 +132,7 @@ export default function App() {
 
           <div className="tab-body">
             {tab === 'build' && <SlotEditor issues={issues} />}
+            {tab === 'draft' && <DraftPanel />}
             {tab === 'calc' && <CalcPanel />}
             {tab === 'threats' && <ThreatMatrixPanel />}
             {tab === 'speed' && <SpeedPanel />}

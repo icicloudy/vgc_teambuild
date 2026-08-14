@@ -83,6 +83,7 @@ await page.keyboard.press('Escape');
 
 /* ---- 4. relevance ordering ---- */
 await openPicker();
+// Reopening must show the unfiltered list; the query does not survive a close.
 const unfiltered = await page.evaluate(() =>
   [...document.querySelectorAll('.combo-pop .combo-opt')].slice(0, 40).map((o) => ({
     name: o.querySelector('.combo-opt-label')?.textContent,

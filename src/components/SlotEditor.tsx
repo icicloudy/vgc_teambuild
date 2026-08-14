@@ -2,9 +2,10 @@ import { useMemo } from 'react';
 import type { LegalityIssue, StatID } from '../types';
 import { STATS, STAT_NAMES } from '../types';
 import {
-  NATURES, TYPES, abilitiesFor, allItems, getItem, getMove, getSpecies, megasFor,
+  NATURES, TYPES, abilitiesFor, getItem, getMove, getSpecies, megasFor,
   natureLabel, natureModifier, toID,
 } from '../data/dex';
+import { ITEM_CATEGORY_LABEL, itemCatalogue } from '../data/items';
 import { CONFIDENCE_LABEL, legalMegas, rosterConfidence } from '../data/roster';
 import { displayName } from '../engine/calc';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, computeStats, resolveForm, spTotal } from '../engine/stats';
@@ -48,19 +49,16 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
 
   const allMegas = useMemo(() => megasFor(member?.species ?? ''), [member?.species]);
 
-  const itemOptions: ComboOption[] = useMemo(() => {
-    const stones = new Set(allMegas.map((m) => m.stoneId));
-    return allItems()
-      .filter((i) => !i.megaStone || stones.has(i.id))
-      .map((i) => ({
-        value: i.name,
-        label: i.name,
-        keywords: i.shortDesc,
-        sublabel: <span className="muted small">{i.shortDesc}</span>,
-        group: i.megaStone ? 'Mega Stone' : 'Item',
-      }))
-      .sort((a, b) => (a.group === 'Mega Stone' ? -1 : 0) - (b.group === 'Mega Stone' ? -1 : 0));
-  }, [allMegas]);
+  const itemOptions: ComboOption[] = useMemo(
+    () => itemCatalogue(member?.species ?? '').map(({ item, category }) => ({
+      value: item.name,
+      label: item.name,
+      keywords: `${item.shortDesc} ${ITEM_CATEGORY_LABEL[category]}`,
+      sublabel: <span className="muted small">{item.shortDesc}</span>,
+      group: ITEM_CATEGORY_LABEL[category],
+    })),
+    [member?.species],
+  );
 
   const moveOptions: ComboOption[] = useMemo(() => {
     const source = learnset.length ? learnset : [];

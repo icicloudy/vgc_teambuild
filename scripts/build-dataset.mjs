@@ -32,10 +32,25 @@ const keep = (thing) => !EXCLUDED_STANDARDS.has(thing.isNonstandard);
 
 /** Base formes a builder can select, mirroring allSelectableSpecies(). */
 function isSelectable(s) {
-  if (s.forme && (s.forme.startsWith('Mega') || s.forme === 'Primal')) return false;
+  // "Mega" is not always the start of the forme name: Meowstic-F-Mega and
+  // Tatsugiri-Curly-Mega are formes of formes, and are results, not choices.
+  if (s.forme && (/(^|-)Mega/.test(s.forme) || s.forme === 'Primal')) return false;
   if (!keep(s)) return false;
   if (s.isCosmeticForme) return false;
   if (s.num <= 0) return false;
+
+  // Formes you cannot bring to a battle, only end up in.
+  if (s.battleOnly) return false;                 // Aegislash-Blade, Darmanitan-Zen, Greninja-Ash…
+  // Formes that exist only while an item is held (Silvally's memories, Genesect's
+  // drives, Arceus's plates). Mega Stones work this way too, but Megas are already
+  // out above and are modelled properly through the stone.
+  if (s.requiredItem) return false;
+  if (s.isNonstandard === 'Gigantamax') return false;
+  if (/-(Gmax|Totem)$/.test(s.name)) return false;
+  // Cosplay and cap Pikachu: identical stats, cosmetic only.
+  if (s.baseSpecies === 'Pikachu' || s.name === 'Pichu-Spiky-eared') return false;
+  // Never released. The dex carries it, no game has ever handed one out.
+  if (s.name === 'Floette-Eternal') return false;
   return true;
 }
 
@@ -139,9 +154,45 @@ for (const s of speciesById.values()) {
 
 /* ---------------- items, abilities, types, natures ---------------- */
 
+/**
+ * Items with no effect inside a battle: evolution and trade items, sell junk,
+ * bottle caps, and the berries that only lower EVs. They are legal to hold and
+ * completely pointless, so they are not choices a teambuilder should offer.
+ */
+const NO_BATTLE_EFFECT = new Set([
+  // Evolution and trade items.
+  'dawnstone', 'duskstone', 'firestone', 'icestone', 'leafstone', 'moonstone',
+  'shinystone', 'sunstone', 'thunderstone', 'waterstone', 'ovalstone', 'dragonscale',
+  'metalcoat', 'prismscale', 'upgrade', 'dubiousdisc', 'protector', 'reapercloth',
+  'electirizer', 'magmarizer', 'metalalloy', 'auspiciousarmor', 'maliciousarmor',
+  'chippedpot', 'crackedpot', 'masterpieceteacup', 'unremarkableteacup',
+  'galaricacuff', 'galaricawreath', 'sweetapple', 'tartapple', 'syrupyapple',
+  'berrysweet', 'cloversweet', 'flowersweet', 'lovesweet', 'ribbonsweet',
+  'starsweet', 'strawberrysweet',
+  // Sold, not used.
+  'bottlecap', 'goldbottlecap', 'bignugget', 'nugget', 'rarebone', 'prettyfeather',
+  // Berries that only lower EVs.
+  'pomegberry', 'kelpsyberry', 'qualotberry', 'hondewberry', 'grepaberry', 'tamatoberry',
+]);
+
+/**
+ * An item ships only if a Champions battle can actually use it.
+ *
+ * The dex marks everything absent from Gen 9 as "Past", which covers Z-Crystals,
+ * Memories, Drives, fossils and the whole Gen 2 evolution-item drawer. Mega Stones
+ * are the deliberate exception — Champions is built on them (see README).
+ */
+function battleItem(i) {
+  if (i.megaStone) return true;
+  if (i.isPokeball || i.zMove || i.isGem || i.onMemory || i.onDrive) return false;
+  if (i.isNonstandard) return false;
+  return !NO_BATTLE_EFFECT.has(i.id);
+}
+
 const items = [];
 for (const i of Dex.items.all()) {
   if (!i.exists || !keep(i) || i.num < 0) continue;
+  if (!battleItem(i)) continue;
   items.push({
     id: i.id,
     name: i.name,
@@ -149,6 +200,12 @@ for (const i of Dex.items.all()) {
     shortDesc: i.shortDesc || i.desc || '',
     ...(i.megaStone ? { megaStone: { ...i.megaStone } } : {}),
     ...(i.isNonstandard ? { isNonstandard: i.isNonstandard } : {}),
+    ...(i.isBerry ? { berry: true } : {}),
+    ...(i.isChoice ? { choice: true } : {}),
+    ...(i.naturalGift ? { boostType: i.naturalGift.type } : {}),
+    // Items that only do something for one Pokémon, so the picker can hide them
+    // everywhere else.
+    ...(i.itemUser?.length ? { user: [...i.itemUser] } : {}),
   });
 }
 

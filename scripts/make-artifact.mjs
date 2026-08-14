@@ -30,7 +30,13 @@ if (/<script[^>]*\ssrc=/i.test(html) || /<link[^>]*\shref="(?!data:)/i.test(scri
   throw new Error('build still references an external asset — it would be blocked by CSP');
 }
 
-const out = [title, style, root, script].join('\n');
+// The host's skeleton declares UTF-8, but this file is also opened straight from
+// disk, where a fragment with no <head> inherits nothing and the box-drawing and
+// accented characters come out as mojibake. A duplicate charset costs 27 bytes and
+// the first declaration wins, so it is harmless where the host provides one — it
+// must stay within the first 1024 bytes to count, hence the leading position.
+const charset = '<meta charset="utf-8">';
+const out = [charset, title, style, root, script].join('\n');
 
 mkdirSync(dirname(OUT), { recursive: true });
 writeFileSync(OUT, out);

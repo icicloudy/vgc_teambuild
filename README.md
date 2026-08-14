@@ -15,6 +15,7 @@ npm run check          # offline data + engine sanity checks
 npm run smoke          # drives the real UI in Chromium
 npm run smoke:mobile   # same, at a phone viewport
 npm run smoke:features # filters, the threshold map, any-Pokémon calcs
+npm run smoke:draft    # the drafter, end to end, in a browser
 ```
 
 ## Using it on your phone
@@ -52,11 +53,21 @@ inside their panels rather than stretching the page.
 **Build** — six slots with a species search that takes what a Pokémon *does*, not just its
 name: type `intimidate`, `fake out` or `steel`, and stack them (`fake out intimidate`) to
 intersect. Unevolved Pokémon sort last and are labelled, so they never crowd out real options.
-Learnset-filtered move and item pickers, Stat Point sliders with live totals and a marker where
-the 66-point budget runs out, and Mega Evolution handled the way the game handles it: hold the
+Learnset-filtered move pickers, an item list trimmed to what a Champions battle can actually
+use and grouped with the staples first, Stat Point sliders with live totals and a marker
+where the 66-point budget runs out, and Mega Evolution handled the way the game handles it: hold the
 stone, and the forme, typing, ability and stats all switch over everywhere in the app. Showdown
 paste import/export both ways, including folding `Mega Charizard Y` back into
 Charizard @ Charizardite Y.
+
+**Draft** — the part that starts a team rather than polishing one. Keep whatever you
+already have, choose a game plan (or let it read your core and pick one), turn the spice
+dial, and it fills the rest: species, ability, item, Nature, four moves and a Stat Point
+spread, for every empty slot — and finishes any set you left half-done rather than
+replacing it. Every pick states its case in plain language ("answers Mega Charizard Y and
+Kingambit, which nothing on the team was beating"), lists the runners-up, and can be
+turned down, in which case that Pokémon never comes back. A before/after read-out across
+six axes shows what the draft actually changed. Details below.
 
 **Matchups, always on** — while you edit a set, the right-hand panel shows the best move
 each way against the top of the metagame, with speed order. No tab switching to find out
@@ -99,6 +110,59 @@ that just beat you and it becomes part of the analysis.
 
 **Calculator** — either side can be a team member, a listed threat, or *any* Pokémon in the
 dex, with its own ability, item, nature, Stat Points and moves.
+
+---
+
+## How the drafter decides
+
+A teambuilder that autocompletes by picking high-stat Pokémon is a random team generator
+with extra steps. This one is built on two ideas.
+
+**A team is a plan, not a pile.** The drafter commits to a game plan first — balanced
+goodstuff, Tailwind offense, Trick Room, sun, rain, bulky control — and scores everything
+against it. On "read my team and choose" it infers the plan from what you already have: a
+core averaging base 45 Speed gets Trick Room, and every later decision follows from that,
+down to Quiet Natures and zero Speed investment. The spice dial gates the stranger plans
+and widens the draw, so the difference between chalk and spice is a different *team*, not
+a worse one.
+
+**"What is missing" is only answerable against the metagame.** Every candidate is scored
+on cheap structural terms first — resistances where your team is stacked weak, coverage
+nothing else brings, roles nobody fills, speed tiers you do not occupy, physical/special
+balance. The top eighteen then get the expensive treatment: a full set is generated for
+each, run through the same damage matrix the Threat tab uses, and scored on **how much it
+improves your worst answer to each threat, weighted by how common that threat is**. A
+Pokémon that beats things you already beat scores nothing for it. That is the term that
+decides the pick, and it is why the reasons quote real matchups.
+
+Set generation follows the same rule — every choice has to be derivable:
+
+- **Moves** — role moves first (the reason the Pokémon is there), then the best STAB, then
+  whichever coverage move fills a hole in the *team's* offense, then Protect. Accuracy is
+  punished super-linearly, spread moves get their doubles bonus, Foul Play is priced off
+  the target's Attack rather than the user's, and moves that need a promise the drafter
+  cannot keep (Focus Punch, Future Sight, three-turn lock-ins) are never offered.
+- **Stat Points** — the attacking stat, then Speed *priced against the threat list*: every
+  point count from 0 to the budget is costed as "extra share of the metagame outrun" minus
+  "bulk those points would have bought", so a slow Pokémon chasing a tier it cannot reach
+  correctly gets nothing. Everything left goes into bulk one point at a time, to whichever
+  of HP/Def/SpD buys the most effective HP against a metagame weighted by how physical it
+  actually is.
+- **Nature** — decided *with* the Speed investment, not before it, since +Speed costs 10%
+  of the attacking stat and has to buy meaningfully more of the field to be worth it.
+- **Item** — scored from the finished set (Assault Vest only with four attacks, Mental Herb
+  on the Trick Room setter, Light Clay behind screens), respecting Item Clause, with a
+  fallback chain so a slot is never left empty.
+- **Ability** — chosen for the base forme, always: a set that Mega Evolves stores the
+  pre-Mega ability, because Gardevoir cannot "have" Pixilate.
+
+**Team shape** is six measurements, not vibes: offense, bulk and speed come from the real
+matrix against the threat list, coverage from the type table, support from the VGC role
+checklist, resilience from stacked weaknesses with no resist.
+
+None of this is a hard-coded sample team. What *is* curated is the VGC knowledge the dex
+does not carry — that Fake Out is worth a slot and Splash is not — and it lives in named
+tables at the top of `src/engine/setgen.ts` where you can argue with it.
 
 ---
 
@@ -158,6 +222,17 @@ tells you where it is guessing:
   it in the Metagame tab; everything downstream sharpens as it gets closer to your ladder.
 - **The M-A roster split** from M-B could not be verified offline and is reconstructed from
   the reported M-B additions.
+- **Item list** — trimmed to what a Champions battle can use. The dex marks everything
+  absent from Gen 9 as "Past", which removes Z-Crystals, Memories, Drives, fossils and the
+  Gen 2 evolution drawer in one go (Mega Stones are the deliberate exception); on top of
+  that, items with no battle effect at all — evolution stones, sell junk, the berries that
+  only lower EVs — are dropped by name. 578 entries become ~160, grouped by category with
+  the ones VGC actually runs first. Species-locked items (Light Ball, the Orbs) only appear
+  on the species that can use them. The ordering inside "commonly used" is hand-made: no
+  usage statistics exist for Champions.
+- **Buildable formes** — Gigantamax, Totem, battle-only (Aegislash-Blade, Darmanitan-Zen)
+  and item-locked formes (Silvally's memories, Genesect's drives) are not offered, since
+  you cannot bring them to a battle. Neither is Floette-Eternal, which no game has released.
 - **Sprites** load from Pokémon Showdown and fall back to type-coloured initials, so the app
   works offline and Champions-exclusive Megas without an upstream sprite still render cleanly.
 
@@ -167,14 +242,17 @@ tells you where it is guessing:
 
 ```
 src/
-  data/       dex wrappers, Mega registry, formats, roster model, threat database
+  data/       dex wrappers, Mega registry, formats, roster model, item catalogue,
+              species search, threat database
   engine/     stats · damage calc · legality · speed · coverage · threat matrix
-              · EV optimizer · suggestions · Showdown import-export
+              · Stat Point optimizer · game plans · set synthesis · the drafter
+              · suggestions · Showdown import-export
   components/ UI
 scripts/
   build-dataset.mjs distils @pkmn/dex into the compact dataset the app ships
   check-data.ts     validates the threat DB and exercises the engine offline
   smoke.mjs         builds a team through the real UI in Chromium
+  draft-check.mjs   drives the drafter end to end and audits what it produced
   mobile-check.mjs  asserts the phone layout stays operable
   make-artifact.mjs packs the single-file build for embedding
   artifact-check.mjs runs that build with no network and no localStorage

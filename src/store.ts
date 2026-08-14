@@ -12,7 +12,8 @@ import { emptySet, evsToSP, newId } from './engine/showdown';
 import { getSpecies } from './data/dex';
 
 export type TabId =
-  | 'build' | 'calc' | 'threats' | 'speed' | 'analysis' | 'coach' | 'threatdb' | 'roster';
+  | 'build' | 'draft' | 'calc' | 'threats' | 'speed' | 'analysis' | 'coach'
+  | 'threatdb' | 'roster';
 
 export interface CalcSlotRef {
   /** 'custom' is a free-form Pokémon that is neither on the team nor a listed threat. */

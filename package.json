@@ -16,7 +16,8 @@
     "build:artifact": "npm run data && tsc -b && vite build --config vite.artifact.config.ts && node scripts/make-artifact.mjs",
     "check:artifact": "node scripts/artifact-check.mjs",
     "data": "node scripts/build-dataset.mjs",
-    "smoke:features": "node scripts/feature-check.mjs"
+    "smoke:features": "node scripts/feature-check.mjs",
+    "smoke:draft": "node scripts/draft-check.mjs"
   },
   "dependencies": {
     "@smogon/calc": "^0.11.0",
@@ -38,5 +39,5 @@
     "vite-plugin-singlefile": "^2.3.3",
     "vitest": "^4.1.10"
   },
-  "description": "Teambuilder, damage calculator and coach for Pok\u00e9mon Champions VGC"
+  "description": "Teambuilder, damage calculator and coach for Pokémon Champions VGC"
 }

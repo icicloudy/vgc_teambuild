@@ -82,6 +82,27 @@ const tools = await page.evaluate(() => {
 check('delete reachable without hover', tools.delVisible);
 check('reorder arrows hidden on mobile', tools.moveHidden);
 
+// The drafter has to be usable on a phone too: the cards stack, and the whole
+// draft runs without the page ever scrolling sideways.
+await page.click('.tab:has-text("Draft")');
+await page.waitForSelector('.draft-controls');
+await page.getByRole('button', { name: 'Draft the rest' }).click();
+await page.waitForSelector('.draft-card', { timeout: 120000 });
+await page.waitForTimeout(600);
+const draftLayout = await page.evaluate(() => {
+  const cards = [...document.querySelectorAll('.draft-card')];
+  const widths = new Set(cards.map((c) => Math.round(c.getBoundingClientRect().width)));
+  return {
+    fits: document.body.scrollWidth <= document.documentElement.clientWidth,
+    stacked: cards.length > 1 && widths.size === 1,
+    shape: !!document.querySelector('.shape-row'),
+  };
+});
+check('Draft tab fits the viewport', draftLayout.fits);
+check('draft cards stack in one column', draftLayout.stacked);
+check('team shape renders on mobile', draftLayout.shape);
+await page.screenshot({ path: `${OUT}/m-04-draft.png` });
+
 const shots = [
   ['Build', 'm-01-build'],
   ['Threat matrix', 'm-02-threats'],

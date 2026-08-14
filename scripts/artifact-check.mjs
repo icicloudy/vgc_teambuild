@@ -67,6 +67,18 @@ await page.click('.tab:has-text("Coach")');
 await page.waitForTimeout(1200);
 check('coach runs', (await page.locator('.advice, .issue').count()) > 0);
 
+// The drafter is the heaviest thing in the app: thousands of damage calculations
+// with no network and no storage. It has to survive the sandbox too.
+await page.click('.tab:has-text("Draft")');
+await page.waitForSelector('.draft-controls');
+await page.getByRole('button', { name: 'Draft the rest' }).click();
+await page.waitForSelector('.draft-card', { timeout: 180000 });
+check('drafter runs in the sandbox', (await page.locator('.draft-card').count()) >= 5);
+check('drafted sets are complete', await page.evaluate(() =>
+  [...document.querySelectorAll('.draft-card')].every((c) => c.querySelectorAll('.draft-move').length === 4)));
+await page.click('.tab:has-text("Coach")');
+await page.waitForTimeout(400);
+
 // Sprites must render as the type-coloured fallback, never a broken image.
 const sprites = await page.evaluate(() => ({
   imgs: document.querySelectorAll('img.sprite').length,

@@ -175,6 +175,7 @@ code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 1
 
 .empty-state { text-align: center; padding: 60px 20px; color: var(--text-2); }
 .empty-state h2 { margin-bottom: 8px; color: var(--text); }
+.empty-actions { display: flex; gap: 8px; justify-content: center; margin-top: 12px; flex-wrap: wrap; }
 
 /* ---------------- controls ---------------- */
 
@@ -254,6 +255,12 @@ select:focus, input:focus, textarea:focus { outline: none; border-color: var(--a
 .combo-opt-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .combo-opt-label { font-size: 13px; }
 .combo-opt-sub { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+.combo-group {
+  position: sticky; top: 0; z-index: 1;
+  padding: 6px 9px 3px; background: var(--bg-2);
+  font-size: 10px; letter-spacing: .08em; text-transform: uppercase; color: var(--text-3);
+  border-bottom: 1px solid var(--line-1);
+}
 .combo-clear { color: var(--text-3); font-style: italic; }
 .combo-empty { padding: 12px; color: var(--text-3); text-align: center; }
 .combo-compact .combo-value { padding: 3px 6px; font-size: 12px; }
@@ -585,6 +592,92 @@ select:focus, input:focus, textarea:focus { outline: none; border-color: var(--a
 .chip-plus { color: var(--accent); font-weight: 700; }
 
 .notes { width: 100%; resize: vertical; line-height: 1.5; }
+
+/* ---------------- draft table ---------------- */
+
+.draft-controls {
+  display: flex; flex-wrap: wrap; gap: 18px; align-items: flex-start;
+}
+.draft-control { display: flex; flex-direction: column; gap: 4px; min-width: 220px; }
+.draft-control select { max-width: 280px; }
+.draft-spice input[type='range'] { width: 240px; accent-color: var(--accent); }
+.draft-banned { display: flex; flex-wrap: wrap; gap: 4px; }
+.chip-x {
+  background: var(--bg-3); border: 1px solid var(--line); color: var(--text-2);
+  border-radius: 20px; padding: 2px 8px; font-size: 11px; cursor: pointer;
+}
+.chip-x:hover { border-color: var(--error); color: var(--text); }
+.draft-hint { max-width: 70ch; margin-top: 10px; }
+.draft-timing { margin: 10px 0 0; }
+
+/* Team shape: a bar for the drafted value, a tick for where the team is now.
+   The two marks differ in shape, so identity never rests on colour alone. */
+.shape { display: flex; flex-direction: column; gap: 7px; }
+.shape-row { display: grid; grid-template-columns: 92px 1fr 132px; gap: 10px; align-items: center; }
+.shape-label { font-size: 12px; color: var(--text-2); }
+.shape-track {
+  position: relative; height: 10px; border-radius: 5px;
+  background: var(--bg-3); overflow: hidden;
+}
+.shape-fill {
+  position: absolute; inset: 0 auto 0 0; border-radius: 0 4px 4px 0;
+  background: var(--accent);
+}
+.shape-tick {
+  position: absolute; top: -2px; bottom: -2px; width: 2px;
+  background: var(--text-2); box-shadow: 0 0 0 2px var(--bg-1);
+}
+.shape-values {
+  display: flex; align-items: baseline; gap: 5px; font-size: 12px; color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.shape-values strong { color: var(--text); font-size: 13px; }
+.shape-arrow { color: var(--text-3); }
+.shape-delta { color: var(--text-3); font-size: 11px; }
+
+.draft-grid {
+  display: grid; gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+}
+.draft-card {
+  background: var(--bg-1); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px; display: flex; flex-direction: column; gap: 10px;
+}
+.draft-card.is-completed { border-left: 2px solid var(--accent-2); }
+.draft-card-head { display: flex; align-items: center; gap: 10px; }
+.draft-card-title { flex: 1; min-width: 0; }
+.draft-card-types { display: flex; gap: 4px; margin-top: 3px; }
+
+.draft-reasons { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.draft-reasons li { font-size: 12px; line-height: 1.45; color: var(--text); }
+.draft-reason-icon { color: var(--accent); margin-right: 6px; }
+.draft-reason-kind {
+  display: inline-block; margin-right: 6px; font-size: 10px; text-transform: uppercase;
+  letter-spacing: .06em; color: var(--text-3);
+}
+
+.draft-set { border-top: 1px solid var(--line); padding-top: 9px; display: flex; flex-direction: column; gap: 7px; }
+.draft-moves { display: flex; flex-wrap: wrap; gap: 5px; }
+.draft-move {
+  display: inline-flex; align-items: center; gap: 4px; font-size: 11px;
+  background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius-sm);
+  padding: 2px 7px;
+}
+.draft-spread { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; }
+.draft-sp { font-size: 11px; color: var(--text-2); font-variant-numeric: tabular-nums; }
+.draft-sp em { color: var(--text-3); font-style: normal; margin-left: 6px; }
+.draft-notes {
+  margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px;
+  font-size: 11px; color: var(--text-3);
+}
+.draft-card-foot { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-top: auto; }
+.draft-alts { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+
+@media (max-width: 720px) {
+  .draft-grid { grid-template-columns: 1fr; }
+  .shape-row { grid-template-columns: 74px 1fr 108px; }
+  .draft-spice input[type='range'] { width: 100%; }
+}
 
 /* ---------------- threat db + roster ---------------- */
 

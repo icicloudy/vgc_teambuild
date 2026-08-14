@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { getSpecies, spriteUrl } from '../data/dex';
 import { displayName } from '../engine/calc';
@@ -138,7 +138,7 @@ export function Combobox({
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(e.target as Node)) close();
     };
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
@@ -166,10 +166,16 @@ export function Combobox({
     el?.scrollIntoView({ block: 'nearest' });
   }, [cursor]);
 
-  const commit = (v: string) => {
-    onChange(v);
+  // Closing always drops the query: reopening a picker still filtered by what you
+  // typed a minute ago looks like a broken list.
+  const close = () => {
     setOpen(false);
     setQuery('');
+  };
+
+  const commit = (v: string) => {
+    onChange(v);
+    close();
   };
 
   return (
@@ -180,9 +186,12 @@ export function Combobox({
         // Toggle on mousedown, not click: selecting an option unmounts the list
         // mid-gesture and the browser then retargets the trailing click at this
         // button, which would immediately reopen the dropdown.
-        onMouseDown={(e) => { e.preventDefault(); setOpen((o) => !o); }}
+        onMouseDown={(e) => { e.preventDefault(); if (open) close(); else setOpen(true); }}
         onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen((o) => !o); }
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            if (open) close(); else setOpen(true);
+          }
         }}
       >
         {renderValue ? renderValue(value) : <span>{value || placeholder}</span>}
@@ -208,7 +217,7 @@ export function Combobox({
                 setCursor((c) => Math.max(c - 1, 0));
               }
               else if (e.key === 'Enter') { e.preventDefault(); const o = filtered[cursor]; if (o && !o.disabled) commit(o.value); }
-              else if (e.key === 'Escape') { setOpen(false); }
+              else if (e.key === 'Escape') { close(); }
             }}
           />
           {renderHeader?.(query, filtered.length)}
@@ -219,9 +228,12 @@ export function Combobox({
               </button>
             )}
             {filtered.map((o, i) => (
+              <Fragment key={o.value + i}>
+                {o.group && o.group !== filtered[i - 1]?.group && (
+                  <div className="combo-group">{o.group}</div>
+                )}
               <button
                 type="button"
-                key={o.value + i}
                 data-active={i === cursor}
                 className={`combo-opt ${o.disabled ? 'is-disabled' : ''} ${i === cursor ? 'is-active' : ''}`}
                 onMouseEnter={() => { keyboardNav.current = false; setCursor(i); }}
@@ -233,6 +245,7 @@ export function Combobox({
                 </span>
                 {o.right && <span className="combo-opt-right">{o.right}</span>}
               </button>
+              </Fragment>
             ))}
             {!filtered.length && <div className="combo-empty">No matches</div>}
           </div>

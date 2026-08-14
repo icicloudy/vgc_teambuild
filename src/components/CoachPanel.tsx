@@ -40,7 +40,12 @@ export function CoachPanel({ issues }: { issues: LegalityIssue[] }) {
       <div className="empty-state">
         <h2>Build something first</h2>
         <p>The coach reads your team, runs the full threat matrix and tells you what to fix.</p>
-        <button className="btn btn-primary" onClick={() => setTab('build')}>Go to Build</button>
+        <div className="empty-actions">
+          <button className="btn" onClick={() => setTab('build')}>Go to Build</button>
+          <button className="btn btn-primary" onClick={() => setTab('draft')}>
+            Or let the drafter start it
+          </button>
+        </div>
       </div>
     );
   }
@@ -73,6 +78,15 @@ export function CoachPanel({ issues }: { issues: LegalityIssue[] }) {
 
       <Section
         title="Coach"
+        actions={
+          team.members.length < format.bring || suggestions.some((s) => s.kind === 'spread')
+            ? (
+              <button className="btn btn-sm" onClick={() => setTab('draft')}>
+                Finish this team for me
+              </button>
+            )
+            : undefined
+        }
         subtitle={
           suggestions.length
             ? `${plural(suggestions.length, 'thing')} worth looking at, most important first`

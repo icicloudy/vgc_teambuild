@@ -66,6 +66,11 @@ export interface Item {
   /** Base species name -> Mega forme name. */
   megaStone?: Record<string, string>;
   isNonstandard?: string;
+  berry?: boolean;
+  /** Choice Band / Specs / Scarf: locks the holder into one move. */
+  choice?: boolean;
+  /** Species this item only works for, if any. */
+  user?: string[];
 }
 
 export interface Ability {
@@ -222,7 +227,10 @@ export function speciesTags(s: Species): SpeciesTag[] {
 }
 
 const selectable = data.species
-  .filter((s) => s.selectable)
+  // A Mega forme is a result, never a choice: you pick the base and hold the stone.
+  // Belt and braces against a stale dataset, since a Mega leaking into the picker
+  // would be selectable but unbuildable.
+  .filter((s) => s.selectable && !/(^|-)Mega/.test(s.forme ?? ''))
   .sort((a, b) => a.name.localeCompare(b.name));
 
 /** Every base forme that could plausibly be selected in a builder. */
