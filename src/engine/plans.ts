@@ -14,7 +14,7 @@ export type PlanId = 'balance' | 'tailwind' | 'trickroom' | 'sun' | 'rain' | 'bu
 
 export type RoleKey =
   | 'speedControl' | 'fakeOut' | 'intimidate' | 'redirection' | 'protect'
-  | 'spread' | 'priority' | 'recovery' | 'screens' | 'trickRoom';
+  | 'spread' | 'priority' | 'recovery' | 'screens' | 'trickRoom' | 'pivot';
 
 export interface Plan {
   id: PlanId;
@@ -47,7 +47,7 @@ export const PLANS: Plan[] = [
     enablerAbilities: [],
     payoffAbilities: [],
     weather: '',
-    roleWeights: { fakeOut: 1.2, intimidate: 1.2, protect: 1, speedControl: 1.4 },
+    roleWeights: { fakeOut: 1.2, intimidate: 1.2, protect: 1, speedControl: 1.4, pivot: 1.2 },
     exotic: 0,
   },
   {
@@ -109,6 +109,7 @@ export const PLANS: Plan[] = [
     weather: '',
     roleWeights: {
       intimidate: 1.8, redirection: 1.6, recovery: 1.5, protect: 1.4, screens: 1.2,
+      pivot: 1.3,
     },
     exotic: 0.2,
   },

@@ -72,7 +72,8 @@ const SUPPORT_VALUE: Record<string, number> = {
   fakeout: 60, followme: 58, ragepowder: 58, spotlight: 30, allyswitch: 22,
   trickroom: 62, tailwind: 62, icywind: 40, electroweb: 34, thunderwave: 30, nuzzle: 34,
   helpinghand: 34, wideguard: 30, quickguard: 18, coaching: 16,
-  partingshot: 40, willowisp: 28, taunt: 26, encore: 26, disable: 14,
+  partingshot: 58, uturn: 44, voltswitch: 42, flipturn: 42, teleport: 18,
+  willowisp: 28, taunt: 26, encore: 26, disable: 14,
   spore: 48, sleeppowder: 22, lovelykiss: 18, yawn: 16,
   reflect: 24, lightscreen: 24, auroraveil: 36,
   recover: 26, roost: 26, softboiled: 26, synthesis: 22, moonlight: 22, morningsun: 22,
@@ -131,12 +132,88 @@ const SELF_DEBUFF = new Set([
   'superpower', 'closecombat', 'vcreate', 'hyperspacefury', 'clangoroussoul',
 ]);
 
+/** Moves that cost a large slice of the user's own HP every time they fire. */
+const HP_COST = new Set(['steelbeam', 'mindblown', 'chloroblast']);
+
 /** Recoil moves: the damage is real, and so is the chip you take for it. */
 const RECOIL = new Set([
   'doubleedge', 'flareblitz', 'bravebird', 'wildcharge', 'woodhammer', 'headsmash',
   'volttackle', 'submission', 'takedown', 'headcharge', 'lightofruin', 'wavecrash',
   'headlongrush', 'chloroblast',
 ]);
+
+/*
+ * Calibration for putting support moves and attacks on one scale.
+ *
+ * SUPPORT_SCALE converts a support value into attack-score units. ATTACK_RETURNS
+ * is the marginal value of the nth attack on a set: in doubles you are looking at
+ * two opponents and the game turns on tempo, so the first attack is essential, the
+ * second buys coverage, and the third is usually worth less than the utility move
+ * it displaced. Most real VGC sets are two attacks and two other things, and this
+ * curve is why the drafter now lands there too.
+ */
+const SUPPORT_SCALE = 1.6;
+const ATTACK_RETURNS = [1, 0.82, 0.5, 0.34];
+
+/**
+ * How a move changes the user's own stats, and which moves care.
+ *
+ * Scale Shot lowers Defence to raise Speed; Body Press attacks *with* Defence.
+ * Put them on the same Pokémon and each one makes the other worse — a mistake that
+ * no amount of scoring each move separately will catch, because both are good.
+ */
+const SELF_STAT_CHANGE: Record<string, Partial<Record<StatID, number>>> = {
+  scaleshot: { def: -1, spe: 1 },
+  closecombat: { def: -1, spd: -1 },
+  superpower: { atk: -1, def: -1 },
+  headlongrush: { def: -1, spd: -1 },
+  overheat: { spa: -2 },
+  dracometeor: { spa: -2 },
+  leafstorm: { spa: -2 },
+  psychoboost: { spa: -2 },
+  makeitrain: { spa: -1 },
+  spinout: { spe: -2 },
+  vcreate: { def: -1, spd: -1, spe: -1 },
+  dragondance: { atk: 1, spe: 1 },
+  swordsdance: { atk: 2 },
+  nastyplot: { spa: 2 },
+  agility: { spe: 2 },
+  rockpolish: { spe: 2 },
+  irondefense: { def: 2 },
+  calmmind: { spa: 1, spd: 1 },
+  bulkup: { atk: 1, def: 1 },
+  victorydance: { atk: 1, def: 1, spe: 1 },
+  tidyup: { atk: 1, spe: 1 },
+  curse: { atk: 1, def: 1, spe: -1 },
+};
+
+/** Moves whose damage is read off a stat other than the obvious attacking one. */
+const DAMAGE_READS_STAT: Record<string, { stat: StatID; wants: 1 | -1 }> = {
+  bodypress: { stat: 'def', wants: 1 },
+  gyroball: { stat: 'spe', wants: -1 },
+  electroball: { stat: 'spe', wants: 1 },
+};
+
+/**
+ * Do these two moves undercut each other on the same set?
+ *
+ * True when one move moves a stat in the direction that makes the other worse —
+ * Scale Shot dropping the Defence that Body Press attacks with, Iron Defense
+ * raising the Speed... and so on. Symmetric, because the order they were picked in
+ * does not matter.
+ */
+export function movesConflict(a: Move, b: Move): boolean {
+  const undercuts = (changer: Move, reader: Move): boolean => {
+    const change = SELF_STAT_CHANGE[changer.id];
+    const reads = DAMAGE_READS_STAT[reader.id];
+    if (!change || !reads) return false;
+    const delta = change[reads.stat];
+    if (delta === undefined || delta === 0) return false;
+    // A move that wants the stat high is undercut by lowering it, and vice versa.
+    return Math.sign(delta) !== reads.wants;
+  };
+  return undercuts(a, b) || undercuts(b, a);
+}
 
 /** Moves that pull their weight beyond raw damage (utility riders). */
 const MOVE_RIDER: Record<string, number> = {
@@ -556,6 +633,7 @@ function attackScore(
   // suggests, because the second use is the one that matters.
   if (SELF_DEBUFF.has(move.id)) score *= 0.86;
   if (RECOIL.has(move.id)) score *= 0.85;
+  if (HP_COST.has(move.id)) score *= 0.6;
   score += rider;
   return score;
 }
@@ -633,136 +711,149 @@ function pickMoves(
     return true;
   };
 
-  /* ---- 1. Role moves: the reason this Pokémon is on the team --------- */
+  /* ---- One list, one scale --------------------------------------------
+   *
+   * Support moves and attacks used to be chosen in separate passes with separate
+   * budgets, which meant a third attack could never lose to a better utility move
+   * however lopsided the comparison was — that is how Incineroar ended up with
+   * Darkest Lariat instead of Parting Shot. Everything now competes on one number.
+   *
+   * The other half of the fix is that attacks have diminishing returns. In doubles
+   * you face two Pokémon and the game is decided by tempo, so the first attack is
+   * essential, the second buys coverage, and the third is usually worth less than
+   * whatever utility it displaced. That single curve does most of the work here.
+   */
   const teamRoles = teamRoleCount(ctx.team, ctx.format);
-  const supportBudget = archetype === 'attacker' ? 2 : 3;
-  const roleCandidates = pool
-    .filter((p) => p.support > 0)
+  const planNeedsCarrier = !planIsUp(ctx.team, ctx.plan, ctx.format);
+  // Roles this set has already taken. Without this a Pokémon happily runs both
+  // Parting Shot and U-turn, or Thunder Wave and Icy Wind: two answers to a
+  // question it only had once.
+  const rolesTaken = new Set<RoleKey>();
+  for (const m of chosen) {
+    const key = ROLE_OF_MOVE[toID(m)];
+    if (key) rolesTaken.add(key);
+  }
+
+  const supportValue = (p: PoolEntry): number => {
+    let value = p.support;
+    // A damaging support move fires off an attacking stat. Icy Wind on a physical
+    // attacker is a 55-power special move from an uninvested SpA — the speed drop
+    // still lands, but Thunder Wave does the same job for free.
+    if (p.move.category !== 'Status' &&
+        (p.move.category === 'Physical') !== (bias === 'physical')) {
+      value *= 0.6;
+    }
+    const key = ROLE_OF_MOVE[p.move.id];
+    if (key) {
+      value *= ctx.plan.roleWeights[key] ?? 1;
+      // The first carrier of a role is worth several times the second.
+      const held = teamRoles[key] ?? 0;
+      value *= held === 0 ? 1.6 : held === 1 ? 0.6 : 0.25;
+    }
+    // The plan needs exactly one carrier. Once it is up, a second copy is a wasted
+    // move slot on a team that already has it.
+    if (planNeedsCarrier && ctx.plan.enablerMoves.some((m) => toID(m) === p.move.id)) {
+      value += 70;
+    }
+    return value * SUPPORT_SCALE;
+  };
+
+  const usable = pool
     // Speed control has to agree with the plan: Trick Room on a Tailwind team is
     // not a bonus, it is the two halves of the team fighting each other.
     .filter((p) => (p.move.id === 'trickroom' ? ctx.plan.tempo === 'slow' : true))
     .filter((p) => (p.move.id === 'tailwind' ? ctx.plan.tempo !== 'slow' : true))
     // Aurora Veil fails outside snow, so it needs somebody on the team to set it.
-    .filter((p) => (p.move.id === 'auroraveil' ? teamSetsSnow(ctx) : true))
-    .map((p) => {
-      let value = p.support;
-      // A damaging support move fires off an attacking stat. Icy Wind on a
-      // physical attacker is a 55-power special move from an uninvested SpA —
-      // the speed drop still lands, but Thunder Wave does the same job for free.
-      if (p.move.category !== 'Status' &&
-          (p.move.category === 'Physical') !== (bias === 'physical')) {
-        value *= 0.6;
-      }
-      const key = ROLE_OF_MOVE[p.move.id];
-      if (key) {
-        value *= ctx.plan.roleWeights[key] ?? 1;
-        // A role nobody else covers is worth far more than a third copy of one.
-        // The first carrier of a role is worth several times the second.
-        const held = teamRoles[key] ?? 0;
-        value *= held === 0 ? 1.6 : held === 1 ? 0.75 : 0.3;
-      }
-      // The plan needs exactly one carrier. Once it is up, a second copy is not a
-      // bonus at all — it is a wasted move slot on a team that already has it.
-      if (ctx.plan.enablerMoves.some((m) => toID(m) === p.move.id) &&
-          !planIsUp(ctx.team, ctx.plan, ctx.format)) {
-        value += 120;
-      }
-      if (p.move.id === 'protect') value *= 0.9; // handled explicitly below
-      return { name: p.move.name, value, id: p.move.id };
-    })
-    .sort((a, b) => b.value - a.value);
+    .filter((p) => (p.move.id === 'auroraveil' ? teamSetsSnow(ctx) : true));
 
-  let supportTaken = 0;
-  for (const cand of roleCandidates) {
-    if (supportTaken >= supportBudget - 1) break; // always leave room for Protect
-    if (cand.value < 45) break;
-    if (cand.id === 'protect') continue;
-    // Doubling up on a role the team already has needs a much better reason than
-    // covering one nothing else does.
-    const roleKey = ROLE_OF_MOVE[cand.id];
-    if (roleKey && (teamRoles[roleKey] ?? 0) >= 1 && cand.value < 75) continue;
-    if (add(cand.name)) {
-      supportTaken++;
-      const key = ROLE_OF_MOVE[cand.id];
-      if (key && (teamRoles[key] ?? 0) === 0) {
-        notes.push(`${cand.name} — nothing else on the team brings ${ROLE_LABEL[key]}.`);
-      }
-    }
-  }
-
-  /* ---- 2. Attacks: best STAB, then the best coverage it adds --------- */
-  const attacks = pool
-    .filter((p) => p.move.category !== 'Status')
-    .map((p) => ({
+  const candidates = usable.map((p) => {
+    const support = p.support > 0 ? supportValue(p) : 0;
+    const damage = p.move.category === 'Status'
+      ? 0
+      : attackScore(p, { types, ability, bias, stats, ctx, gaps });
+    return {
       entry: p,
-      score: attackScore(p, { types, ability, bias, stats, ctx, gaps }),
-      justified: moveIsJustified(p.move, { types, ability, gaps, weather: ctx.plan.weather }),
-    }))
-    .sort((a, b) => b.score - a.score);
+      support,
+      damage,
+      // What the move is *for* decides which budget it competes in.
+      isAttack: damage > support,
+      justified: p.move.category === 'Status' ||
+        moveIsJustified(p.move, { types, ability, gaps, weather: ctx.plan.weather }),
+      firedType: p.move.category === 'Status'
+        ? ''
+        : effectiveMoveType(p.move, ability).type,
+    };
+  });
 
-  // Protect is the highest-value move in doubles and every set gets it. The old
-  // exemption for bulky attackers existed to leave room for four attacks behind an
-  // Assault Vest — and Champions has no Assault Vest, so nothing in this format
-  // pays you for dropping Protect.
-  const wantProtect = pool.some((p) => p.support > 0 && ROLE_OF_MOVE[p.move.id] === 'protect');
-  // Whatever is left after the role moves and the Protect slot, minus nothing:
-  // a role move like Fake Out is not an attack, and must not eat the attack
-  // budget the way it used to.
-  const attackQuota = Math.max(1, 4 - chosen.length - (wantProtect ? 1 : 0));
   const usedTypes = new Set<string>();
+  const conflictsWith = (move: Move) => chosen.some((m) => {
+    const other = getMove(m);
+    return !!other && movesConflict(move, other);
+  });
   for (const m of chosen) {
     const mv = getMove(m);
     if (mv && mv.category !== 'Status') usedTypes.add(effectiveMoveType(mv, ability).type);
   }
 
-  let attacksTaken = 0;
-  for (const { entry, justified } of attacks) {
-    if (attacksTaken >= attackQuota || chosen.length >= 4) break;
-    if (!justified) continue;
-    const fired = effectiveMoveType(entry.move, ability).type;
-    if (usedTypes.has(fired)) continue;
-    if (add(entry.move.name)) {
-      usedTypes.add(fired);
+  let attacksTaken = usedTypes.size;
+  const valueOf = (c: (typeof candidates)[number]) =>
+    (c.isAttack ? c.damage * (ATTACK_RETURNS[attacksTaken] ?? 0.3) : c.support) *
+    (c.justified ? 1 : 0.45);
+
+  while (chosen.length < 4) {
+    const ranked = candidates
+      .filter((c) => !taken.has(c.entry.move.id))
+      .filter((c) => !(c.isAttack && usedTypes.has(c.firedType)))
+      .filter((c) => !conflictsWith(c.entry.move))
+      // Doubling up on a role the team already has needs a real reason.
+      .filter((c) => {
+        const key = ROLE_OF_MOVE[c.entry.move.id];
+        if (!key) return true;
+        // One of each role per set, and doubling up on a role the team already
+        // has needs a real reason.
+        if (rolesTaken.has(key) && key !== 'protect') return false;
+        return !((teamRoles[key] ?? 0) >= 1 && c.support < 75);
+      })
+      .map((c) => ({ c, value: valueOf(c) }))
+      .sort((a, b) => b.value - a.value);
+    if (!ranked.length) break;
+
+    // The set must be able to attack. A support Pokémon can get away with one
+    // damaging move; something with a 120 Attack stat cannot.
+    const minAttacks = archetype === 'attacker' ? 2 : 1;
+    const slotsLeft = 4 - chosen.length;
+    const needsDamage = slotsLeft <= minAttacks - attacksTaken;
+    const pickFrom = needsDamage ? ranked.filter((r) => r.c.isAttack) : ranked;
+    const winner = (pickFrom[0] ?? ranked[0]).c;
+
+    if (!add(winner.entry.move.name)) break;
+    if (winner.isAttack) {
       attacksTaken++;
-      // Only claim coverage for the types it actually hits hard.
-      const covered = [...gaps].filter((g) => effectiveness(fired, [g]) >= 2);
+      usedTypes.add(winner.firedType);
+      const attackRole = ROLE_OF_MOVE[winner.entry.move.id];
+      if (attackRole) rolesTaken.add(attackRole);
+      const covered = [...gaps].filter((g) => effectiveness(winner.firedType, [g]) >= 2);
       if (covered.length) {
         notes.push(
-          `${entry.move.name} — the only thing on the team that hits ${covered.slice(0, 3).join(', ')}.`,
+          `${winner.entry.move.name} — the only thing on the team that hits ${covered.slice(0, 3).join(', ')}.`,
         );
+      }
+    } else {
+      const key = ROLE_OF_MOVE[winner.entry.move.id];
+      if (key) rolesTaken.add(key);
+      if (key && (teamRoles[key] ?? 0) === 0 && key !== 'protect') {
+        notes.push(`${winner.entry.move.name} — nothing else on the team brings ${ROLE_LABEL[key]}.`);
       }
     }
   }
 
-  /* ---- 3. Protect, then anything still missing ---------------------- */
-  const protectOrder = ['protect', 'burningbulwark', 'silktrap', 'spikyshield', 'detect'];
-  const protect = protectOrder
-    .map((id) => pool.find((p) => p.move.id === id))
-    .find(Boolean);
-  if (chosen.length < 4 && protect) add(protect.move.name);
-
-  // Filling the last slot: a second-rate support move beats an unjustified attack.
-  // Avalugg with Recover is a Pokémon; Avalugg with a non-STAB Double-Edge that
-  // covers nothing is four moves and no plan.
-  if (chosen.length < 4) {
-    for (const cand of roleCandidates) {
-      if (chosen.length >= 4) break;
-      if (cand.value < 12) break;
-      add(cand.name);
-    }
-  }
-  if (chosen.length < 4) {
-    for (const { entry } of attacks) {
-      if (chosen.length >= 4) break;
-      add(entry.move.name);
-    }
-  }
   while (chosen.length < 4) chosen.push('');
 
   return { moves: chosen.slice(0, 4), notes };
 }
 
 const ROLE_OF_MOVE: Record<string, RoleKey> = {
+  partingshot: 'pivot', uturn: 'pivot', voltswitch: 'pivot', flipturn: 'pivot',
   tailwind: 'speedControl', icywind: 'speedControl', electroweb: 'speedControl',
   thunderwave: 'speedControl', nuzzle: 'speedControl',
   trickroom: 'trickRoom',
@@ -776,6 +867,7 @@ const ROLE_OF_MOVE: Record<string, RoleKey> = {
 };
 
 const ROLE_LABEL: Record<RoleKey, string> = {
+  pivot: 'a way to switch out with momentum',
   speedControl: 'speed control',
   trickRoom: 'Trick Room',
   fakeOut: 'Fake Out',

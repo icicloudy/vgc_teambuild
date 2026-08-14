@@ -18,9 +18,12 @@ import { minSPToSurvive, minSPToKO, minSPToOutspeed, survivalGrid } from '../src
 import { validateTeam } from '../src/engine/legality.ts';
 import { rosterConfidence } from '../src/data/roster.ts';
 import { itemCatalogue, inChampionsPool } from '../src/data/items.ts';
-import { moveIsJustified } from '../src/engine/setgen.ts';
+import { moveIsJustified, movesConflict } from '../src/engine/setgen.ts';
 import { NFE_EXCEPTIONS } from '../src/data/champions.ts';
 import { draftTeam, prepareThreats, teamShape } from '../src/engine/autobuild.ts';
+import { buildSet } from '../src/engine/setgen.ts';
+import { cohesion } from '../src/engine/synergy.ts';
+import { getPlan } from '../src/engine/plans.ts';
 import type { PlanId } from '../src/engine/plans.ts';
 import type { TypeName } from '../src/data/dex.ts';
 import { emptySet } from '../src/engine/showdown.ts';
@@ -313,6 +316,20 @@ console.log('\n=== Legality ===');
 
 console.log('\n=== Drafter ===');
 {
+  /** Mirrors ROLE_OF_MOVE in setgen: two moves doing one job is a wasted slot. */
+  const ROLE_OF_MOVE_IDS: Record<string, string> = {
+    partingshot: 'pivot', uturn: 'pivot', voltswitch: 'pivot', flipturn: 'pivot',
+    tailwind: 'speed control', icywind: 'speed control', electroweb: 'speed control',
+    thunderwave: 'speed control', nuzzle: 'speed control',
+    trickroom: 'Trick Room', fakeout: 'Fake Out',
+    followme: 'redirection', ragepowder: 'redirection', spotlight: 'redirection',
+    protect: 'protect', detect: 'protect', spikyshield: 'protect',
+    reflect: 'screens', lightscreen: 'screens', auroraveil: 'screens',
+    recover: 'recovery', roost: 'recovery', softboiled: 'recovery', synthesis: 'recovery',
+    moonlight: 'recovery', morningsun: 'recovery', slackoff: 'recovery',
+    strengthsap: 'recovery', junglehealing: 'recovery', lifedew: 'recovery',
+  };
+
   // `gaps` is every type here: the check asks whether the move can *ever* justify
   // itself, not whether it did against one particular team.
   const TYPE_LIST = [
@@ -424,6 +441,22 @@ console.log('\n=== Drafter ===');
         }
       }
 
+      // No set may carry two moves that undercut each other, and no set may carry
+      // two moves that do the same job.
+      for (const member of result.team) {
+        const moves = member.moves.filter(Boolean).map((m) => getMove(m)!).filter(Boolean);
+        for (let i = 0; i < moves.length; i++) {
+          for (let j = i + 1; j < moves.length; j++) {
+            if (movesConflict(moves[i], moves[j])) {
+              fail(`${plan}/${member.species}: ${moves[i].name} undercuts ${moves[j].name}`);
+            }
+          }
+        }
+        const roles = moves.map((m) => ROLE_OF_MOVE_IDS[m.id]).filter(Boolean);
+        const dupe = roles.find((r, i) => r !== 'protect' && roles.indexOf(r) !== i);
+        if (dupe) fail(`${plan}/${member.species} carries two ${dupe} moves`);
+      }
+
       // A Trick Room team must not invest in Speed, and must actually set the room.
       if (plan === 'trickroom') {
         if (result.team.some((m) => (m.sp.spe ?? 0) > 0)) fail('Trick Room plan bought Speed points');
@@ -466,6 +499,49 @@ console.log('\n=== Drafter ===');
   if (Object.values(empty).some((v) => v !== 0)) fail('empty team has a non-zero shape');
   if (first.after.offense <= first.before.offense) fail('drafting a full team did not improve offense');
   else ok(`team shape moves with the team (offense ${first.before.offense} → ${first.after.offense})`);
+}
+
+console.log('\n=== Set coherence ===');
+{
+  const pairs: [string, string, boolean][] = [
+    ['Scale Shot', 'Body Press', true],       // Scale Shot drops the Defence it hits with
+    ['Close Combat', 'Body Press', true],
+    ['Iron Defense', 'Body Press', false],    // raising it is the point
+    ['Scale Shot', 'Dragon Claw', false],
+    ['Agility', 'Gyro Ball', true],           // Gyro Ball wants to be slow
+    ['Agility', 'Electro Ball', false],
+  ];
+  let wrong = 0;
+  for (const [a, b, expected] of pairs) {
+    const ma = getMove(a); const mb = getMove(b);
+    if (!ma || !mb) { fail(`conflict test: unknown move ${a}/${b}`); continue; }
+    if (movesConflict(ma, mb) !== expected) {
+      fail(`${a} + ${b}: expected ${expected ? 'conflict' : 'no conflict'}`);
+      wrong++;
+    }
+  }
+  if (!wrong) ok(`${pairs.length} move pairs classified correctly (Scale Shot undercuts Body Press)`);
+
+  // Cohesion has to be a measurement, not decoration: a team built to work together
+  // must score above one that is six unrelated Pokémon.
+  const together = ['Torkoal', 'Lilligant', 'Charizard'].map((n) => {
+    const g = buildSet(n, {
+      format, team: [], plan: getPlan('sun'), threats: prepareThreats(BUILT_IN_THREATS, format),
+      spice: 0, allowMega: false,
+    });
+    return g.set;
+  });
+  const apart = ['Alakazam', 'Gengar', 'Starmie'].map((n) => {
+    const g = buildSet(n, {
+      format, team: [], plan: getPlan('balance'), threats: prepareThreats(BUILT_IN_THREATS, format),
+      spice: 0, allowMega: false,
+    });
+    return g.set;
+  });
+  const cohesive = cohesion(together, format);
+  const loose = cohesion(apart, format);
+  if (cohesive <= loose) fail(`cohesion does not separate a weather core (${cohesive}) from three unrelated attackers (${loose})`);
+  else ok(`cohesion separates a built core (${cohesive}) from unrelated picks (${loose})`);
 }
 
 console.log('\n=== Champions availability ===');

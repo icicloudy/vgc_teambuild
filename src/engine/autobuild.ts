@@ -11,6 +11,8 @@ import { computeSpeed, defaultScenario } from './speed';
 import { resolveForm } from './stats';
 import { buildSet, planIsUp, rolesOfSet, teamRoleCount, uncoveredTypes } from './setgen';
 import type { DraftThreat, SetContext } from './setgen';
+import { synergiesWith, synergyScore, cohesion } from './synergy';
+import type { SynergyHit } from './synergy';
 import { PLANS, getPlan } from './plans';
 import type { Plan, PlanId, RoleKey } from './plans';
 
@@ -41,7 +43,8 @@ export interface DraftOptions {
 }
 
 export type ReasonKind =
-  | 'threat' | 'defense' | 'offense' | 'role' | 'speed' | 'plan' | 'spice' | 'complete';
+  | 'threat' | 'synergy' | 'defense' | 'offense' | 'role' | 'speed' | 'plan' | 'spice'
+  | 'complete';
 
 export interface DraftReason {
   kind: ReasonKind;
@@ -69,6 +72,7 @@ export interface TeamShape {
   coverage: number;
   support: number;
   resilience: number;
+  cohesion: number;
 }
 
 export const SHAPE_AXES: { key: keyof TeamShape; label: string; hint: string }[] = [
@@ -78,6 +82,11 @@ export const SHAPE_AXES: { key: keyof TeamShape; label: string; hint: string }[]
   { key: 'coverage', label: 'Coverage', hint: 'Types it can hit for super-effective damage' },
   { key: 'support', label: 'Support', hint: 'Speed control, Fake Out, redirection, Protect…' },
   { key: 'resilience', label: 'Resilience', hint: 'Freedom from stacked shared weaknesses' },
+  {
+    key: 'cohesion',
+    label: 'Cohesion',
+    hint: 'Share of the team that works with another member rather than beside it',
+  },
 ];
 
 export interface DraftResult {
@@ -241,6 +250,26 @@ function describePlanEvidence(plan: Plan, team: PokemonSet[], format: FormatRule
 }
 
 /**
+ * How much of the metagame each uncovered type actually accounts for.
+ *
+ * "Nothing on the team hits Bug super-effectively" is only a problem if somebody
+ * brings a Bug type. Weighting the gaps by usage stops the drafter chasing holes
+ * that do not exist, which is most of them.
+ */
+function metagameShareOf(gaps: Set<TypeName>, threats: DraftThreat[]): Map<TypeName, number> {
+  const total = threats.reduce((a, t) => a + t.usage, 0) || 1;
+  const out = new Map<TypeName, number>();
+  for (const gap of gaps) {
+    const share = threats.reduce(
+      (a, t) => a + (t.types.includes(gap) ? t.usage : 0),
+      0,
+    ) / total;
+    out.set(gap, share);
+  }
+  return out;
+}
+
+/**
  * Which side of the offensive split the team attacks from. A team that is all
  * special folds to one specially bulky Pokémon, so the drafter tracks it.
  */
@@ -275,6 +304,7 @@ interface Candidate {
 }
 
 const ROLE_MOVE_IDS: Record<RoleKey, string[]> = {
+  pivot: ['partingshot', 'uturn', 'voltswitch', 'flipturn'],
   speedControl: ['tailwind', 'icywind', 'electroweb', 'thunderwave', 'nuzzle'],
   trickRoom: ['trickroom'],
   fakeOut: ['fakeout'],
@@ -289,10 +319,11 @@ const ROLE_MOVE_IDS: Record<RoleKey, string[]> = {
 
 /** The roles a doubles team genuinely cannot do without. */
 const CORE_ROLES = new Set<RoleKey>([
-  'speedControl', 'fakeOut', 'redirection', 'intimidate', 'trickRoom',
+  'speedControl', 'fakeOut', 'redirection', 'intimidate', 'trickRoom', 'pivot',
 ]);
 
 const ROLE_TEXT: Record<RoleKey, string> = {
+  pivot: 'a pivot move',
   speedControl: 'speed control',
   trickRoom: 'Trick Room',
   fakeOut: 'Fake Out',
@@ -367,6 +398,8 @@ interface ScoreContext {
   meanSpeed: number;
   /** Precomputed once per slot: it is read by every candidate. */
   table: ReturnType<typeof teamTypeTable>;
+  /** Share of the metagame each uncovered type accounts for, 0–1. */
+  gapWeight: Map<TypeName, number>;
   /** Whether anything on the team already sets the plan up. */
   planUp: boolean;
   /** Share of the team that attacks from the special side, 0–1. */
@@ -401,6 +434,7 @@ function makeScoreContext(
     megaUsed: team.some((m) => !!resolveForm(m, format)?.mega),
     meanSpeed: speeds.length ? speeds.reduce((a, b) => a + b, 0) / speeds.length : 0,
     table,
+    gapWeight: metagameShareOf(gaps, threats),
     planUp: planIsUp(team, plan, format),
     specialShare: offensiveSplit(team, format),
   };
@@ -460,10 +494,11 @@ function cheapScore(cand: Candidate, ctx: ScoreContext): ScoreBreakdown {
       return !!move && move.category !== 'Status' && move.basePower >= 70 &&
         effectiveness(move.type, [gap]) >= 2;
     });
-    if (hits) {
-      offense += 9;
-      newCoverage.push(gap);
-    }
+    if (!hits) continue;
+    // Worth something in proportion to how much of the metagame the gap covers.
+    // A hole nothing walks through is not a hole.
+    offense += 60 * (ctx.gapWeight.get(gap) ?? 0);
+    if ((ctx.gapWeight.get(gap) ?? 0) > 0) newCoverage.push(gap);
   }
   offense += (Math.max(stats.atk, stats.spa) - 90) * 0.55;
   // Stacking one attacking side means one bulky Pokémon walls the whole team.
@@ -591,7 +626,7 @@ export function teamShape(
   field: FieldState,
 ): TeamShape {
   if (!team.length) {
-    return { offense: 0, bulk: 0, speed: 0, coverage: 0, support: 0, resilience: 0 };
+    return { offense: 0, bulk: 0, speed: 0, coverage: 0, support: 0, resilience: 0, cohesion: 0 };
   }
   const matrix = buildMatrix(team, threats.map((t) => t.set), { format, field });
   const weightTotal = threats.reduce((a, t) => a + t.usage, 0) || 1;
@@ -650,6 +685,7 @@ export function teamShape(
     coverage: clamp(coverage),
     support: clamp(support),
     resilience: clamp(resilience),
+    cohesion: clamp(cohesion(team, format)),
   };
 }
 
@@ -753,10 +789,19 @@ export function draftTeam(input: DraftInput): DraftResult {
       const newRoles = rolesOfSet(generated.set, format).filter(
         (r) => (ctx.roles[r] ?? 0) === 0 && r !== 'protect',
       );
-      const newCoverage = [...ctx.gaps].filter((gap) => generated.set.moves.some((name) => {
-        const move = getMove(name);
-        return !!move && move.category !== 'Status' && effectiveness(move.type, [gap]) >= 2;
-      }));
+      const newCoverage = [...ctx.gaps]
+        .filter((gap) => (ctx.gapWeight.get(gap) ?? 0) > 0)
+        .filter((gap) => generated.set.moves.some((name) => {
+          const move = getMove(name);
+          return !!move && move.category !== 'Status' && effectiveness(move.type, [gap]) >= 2;
+        }));
+      // How this Pokémon works *with* the ones already on the team. Computed here
+      // rather than in the cheap pass because most pairings depend on the moves,
+      // and the moves only exist once the set has been generated.
+      const synergies = synergiesWith(
+        generated.set, team, format,
+        (m) => displayName(resolveForm(m, format)?.species.name ?? m.species),
+      );
 
       let improvement = 0;
       const fixed: { name: string; gain: number }[] = [];
@@ -778,7 +823,8 @@ export function draftTeam(input: DraftInput): DraftResult {
         fixed,
         newRoles,
         newCoverage,
-        total: breakdown.total + improvement * MATCHUP_WEIGHT,
+        synergies,
+        total: breakdown.total + improvement * MATCHUP_WEIGHT + synergyScore(synergies),
       };
     }).sort((a, b) => b.total - a.total);
 
@@ -869,6 +915,8 @@ interface Measured {
   newRoles: RoleKey[];
   /** Types the finished set can hit for super-effective damage and the team could not. */
   newCoverage: TypeName[];
+  /** Pairings this Pokémon forms with the team it is joining. */
+  synergies: SynergyHit[];
 }
 
 /** Turn the winning score into the two or three sentences that justify it. */
@@ -889,6 +937,12 @@ function explain(m: Measured, ctx: ScoreContext, plan: Plan): DraftReason[] {
       kind: 'threat',
       text: 'Improves the team\'s worst matchups across the threat list rather than replaying answers you already have.',
     });
+  }
+
+  // Cohesion first: how a Pokémon works with the team is the most useful thing
+  // that can be said about it, and the easiest to disagree with.
+  for (const hit of m.synergies.slice(0, 2)) {
+    out.push({ kind: 'synergy', text: hit.describe(name, hit.partnerName) });
   }
 
   if (m.breakdown.patchedTypes.length) {
@@ -947,7 +1001,7 @@ function explain(m: Measured, ctx: ScoreContext, plan: Plan): DraftReason[] {
       text: `${name} scored highest across the whole threat list rather than on any single matchup.`,
     });
   }
-  return out.slice(0, 4);
+  return out.slice(0, 5);
 }
 
 function planCarryNote(m: Measured, plan: Plan): string {

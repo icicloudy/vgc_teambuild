@@ -106,9 +106,31 @@ const shape = await page.evaluate(() => {
     value: r.querySelector('.shape-values strong')?.textContent,
   }));
 });
-check('shape chart has all six axes', shape.length === 6);
+check('shape chart has all seven axes', shape.length === 7);
+check('cohesion is one of them', shape.some((s) => /Cohesion/.test(s.label ?? '')));
 check('shape chart marks where the team is today', shape.some((s) => s.hasTick));
 check('shape chart reports a drafted value', shape.every((s) => Number(s.value) >= 0));
+
+/* ---- the cards explain how the team fits together, not only what it beats ---- */
+const reasonKinds = await page.evaluate(() =>
+  [...document.querySelectorAll('.draft-reason-kind')].map((k) => k.textContent.trim()));
+check('at least one pick is justified by team synergy', reasonKinds.includes('synergy'));
+
+/* ---- no set carries two moves that do the same job ---- */
+const roleDupes = await page.evaluate(() => {
+  const roles = {
+    'Parting Shot': 'pivot', 'U-turn': 'pivot', 'Volt Switch': 'pivot', 'Flip Turn': 'pivot',
+    Tailwind: 'speed', 'Icy Wind': 'speed', Electroweb: 'speed', 'Thunder Wave': 'speed',
+    'Follow Me': 'redirect', 'Rage Powder': 'redirect',
+  };
+  return [...document.querySelectorAll('.draft-card')].filter((card) => {
+    const seen = [...card.querySelectorAll('.draft-move .move-chip-name')]
+      .map((m) => roles[m.textContent.trim()])
+      .filter(Boolean);
+    return seen.some((r, i) => seen.indexOf(r) !== i);
+  }).length;
+});
+check('no set carries two moves doing the same job', roleDupes === 0);
 
 /* ---- alternates are offered ---- */
 check('alternates are offered', (await page.locator('.draft-alts .mon-chip').count()) > 0);

@@ -17,6 +17,7 @@ import { plural } from '../text';
 
 const REASON_ICON: Record<ReasonKind, string> = {
   threat: '◎',
+  synergy: '⇄',
   defense: '⛊',
   offense: '⚔',
   role: '⚑',

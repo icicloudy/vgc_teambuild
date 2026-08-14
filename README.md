@@ -132,6 +132,20 @@ down to Quiet Natures and zero Speed investment. The spice dial gates the strang
 and widens the draw, so the difference between chalk and spice is a different *team*, not
 a worse one.
 
+**A team is a set of relationships, not a pile of good Pokémon.** The scoring above will
+happily assemble six Pokémon that each answer something and never help each other, so
+`src/engine/synergy.ts` models the pairings directly: the redirector that buys the slow
+attacker its turn, the weather setter and the ability that keys off it, the Trick Room
+setter and the Pokémon too slow to play fair without it, Intimidate next to something
+that folds to physical damage, the Ground immunity that gives a Ground-weak partner
+somewhere to stand. Each rule detects one concrete, mechanical pairing; they are scored
+into the draft, they are the *first* thing the card says, and the finished team gets a
+**Cohesion** reading — the share of its members that work with another member rather than
+beside it. "Rage Powder buys Baxcalibur the turn it needs" is a reason you can agree or
+disagree with. "Fills a Bug-type coverage gap" usually is not — which is why coverage is
+now weighted by how much of the metagame the uncovered type actually accounts for. A hole
+nothing walks through is not a hole.
+
 **The drafter only suggests Pokémon that are confirmed to exist.** The roster is curated
 and not published in machine-readable form, so the app's "probably in the roster" tier is a
 guess. A guess is fine on a badge next to a name you typed; it is not fine coming from a
@@ -169,6 +183,20 @@ Set generation follows the same rule — every choice has to be derivable:
   them yourself, where you know who they are standing next to. A damaging support move on
   the wrong attacking stat is marked down too, which is why a physical Pokémon gets Thunder
   Wave rather than Icy Wind.
+- **Move slots compete on one scale.** Support moves and attacks used to be chosen in
+  separate passes with separate budgets, so a third attack could never lose to a better
+  utility move however lopsided the comparison — that is how Incineroar ended up with
+  Darkest Lariat instead of Parting Shot. Everything now competes on one number, and
+  attacks have diminishing returns: in doubles you face two Pokémon and the game turns on
+  tempo, so the first attack is essential, the second buys coverage, and the third is
+  usually worth less than the utility it displaced. Most real VGC sets are two attacks and
+  two other things, and that curve is why the drafter lands there too.
+- **Moves that undercut each other are refused.** Scale Shot lowers Defence to raise Speed;
+  Body Press attacks *with* Defence. Both are good moves and no amount of scoring them
+  separately catches it, so the model is explicit: which moves change the user's stats,
+  which moves read a stat other than the obvious one, and a conflict whenever one moves a
+  stat the wrong way for the other. Two moves doing the same job — Parting Shot and U-turn,
+  Thunder Wave and Icy Wind — are refused for the same reason.
 - **Stat Points** — the attacking stat, then Speed *priced against the threat list*: every
   point count from 0 to the budget is costed as "extra share of the metagame outrun" minus
   "bulk those points would have bought", so a slow Pokémon chasing a tier it cannot reach
