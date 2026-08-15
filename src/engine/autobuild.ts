@@ -11,7 +11,7 @@ import { computeSpeed, defaultScenario } from './speed';
 import { resolveForm } from './stats';
 import { buildSet, planIsUp, rolesOfSet, teamRoleCount, uncoveredTypes } from './setgen';
 import type { DraftThreat, SetContext } from './setgen';
-import { synergiesWith, synergyScore, cohesion } from './synergy';
+import { synergiesWith, synergyScore, cohesion, weatherWantedBy } from './synergy';
 import type { SynergyHit } from './synergy';
 import { PLANS, getPlan } from './plans';
 import type { Plan, PlanId, RoleKey } from './plans';
@@ -179,6 +179,10 @@ function planFit(plan: Plan, team: PokemonSet[], format: FormatRules): number {
       if (!id) continue;
       if (plan.enablerMoves.some((m) => toID(m) === id)) score += 70;
     }
+    // A move that only works under a particular weather is the strongest possible
+    // statement about what plan this team wants: Electro Shot means rain.
+    const wants = weatherWantedBy(member, format);
+    if (wants && toID(plan.weather) === toID(wants)) score += 110;
   }
 
   if (members) {
@@ -534,8 +538,16 @@ function cheapScore(cand: Candidate, ctx: ScoreContext): ScoreBreakdown {
   const hasPayoff = ctx.plan.payoffAbilities.some(
     (a) => cand.abilities.some((c) => toID(c) === toID(a)),
   );
-  if (hasEnablerAbility) plan += ctx.planUp ? 30 : 130;
-  if (hasEnablerMove) plan += ctx.planUp ? 18 : 70;
+  /*
+   * A weather ability and a weather move are not the same thing. Drizzle is free,
+   * arrives on turn one and never has to be re-used; Rain Dance costs a move slot
+   * on somebody and a turn you wanted for something else. When the plan needs a
+   * carrier, the ability is worth far more than the move — which is why a rain
+   * team should be reaching for Pelipper rather than teaching Rain Dance to
+   * whatever happens to be fastest.
+   */
+  if (hasEnablerAbility) plan += ctx.planUp ? 30 : 200;
+  if (hasEnablerMove) plan += ctx.planUp ? 10 : 40;
   if (hasPayoff) plan += 60;
 
   /* ---- Speed --------------------------------------------------------- */
@@ -578,19 +590,44 @@ const VERDICT_SCORE: Record<string, number> = {
   winning: 0, favourable: 25, even: 50, unfavourable: 75, losing: 100, unset: 100,
 };
 
-/** Per-threat verdict scores for a single Pokémon, 0 (beats it) … 100 (loses to it). */
-function verdictRow(
+interface Measurement {
+  /** Per-threat verdict scores, 0 (beats it) … 100 (loses to it). */
+  scores: number[];
+  /** Threats whose best move cannot take this Pokémon down in two hits. */
+  walls: { name: string; usage: number; hits: number; move: string }[];
+}
+
+/** One Pokémon against the whole threat list, measured rather than estimated. */
+function measureAgainst(
   set: PokemonSet,
   threats: DraftThreat[],
   format: FormatRules,
   field: FieldState,
-): number[] {
+): Measurement {
   const matrix = buildMatrix([set], threats.map((t) => t.set), { format, field });
-  return threats.map((_, i) => {
+  const scores: number[] = [];
+  const walls: Measurement['walls'] = [];
+
+  threats.forEach((threat, i) => {
     const cell = matrix.cells[0]?.[i];
-    if (!cell || cell.incomplete) return 100;
-    return VERDICT_SCORE[cell.verdict] ?? 100;
+    if (!cell || cell.incomplete) {
+      scores.push(100);
+      return;
+    }
+    scores.push(VERDICT_SCORE[cell.verdict] ?? 100);
+    const taken = cell.defense?.result;
+    if (taken && taken.hitsToKO >= 3 && taken.max > 0) {
+      walls.push({
+        name: threat.set.nickname || threat.set.species,
+        usage: threat.usage,
+        hits: taken.hitsToKO,
+        move: cell.defense!.move,
+      });
+    }
   });
+
+  walls.sort((a, b) => b.usage - a.usage);
+  return { scores, walls };
 }
 
 /** The team's current best answer to each threat. */
@@ -766,12 +803,26 @@ export function draftTeam(input: DraftInput): DraftResult {
       team.map((m) => getSpecies(m.species)?.num).filter((x): x is number => x !== undefined),
     );
 
-    const eligible = pool.filter(
+    let eligible = pool.filter(
       (c) => !banned.has(toID(c.species.name)) &&
         !usedNums.has(c.species.num) &&
         !team.some((m) => toID(m.species) === toID(c.species.name)),
     );
     if (!eligible.length) break;
+
+    /*
+     * A plan built on weather needs its setter, and it needs it as an ability
+     * rather than as a move somebody had to give up a slot for. Until the team has
+     * one, that is what this slot is for — the same way a human builds rain by
+     * picking Pelipper first and working out the rest afterwards. Without this the
+     * scoring happily drafts the best attacker available and teaches it Rain Dance.
+     */
+    if (plan.enablerAbilities.length && !planIsUp(team, plan, format)) {
+      const setters = eligible.filter((c) => c.abilities.some(
+        (a) => plan.enablerAbilities.some((e) => toID(e) === toID(a)),
+      ));
+      if (setters.length) eligible = setters;
+    }
 
     const shortlist = eligible
       .map((cand) => ({ cand, breakdown: cheapScore(cand, ctx) }))
@@ -783,11 +834,15 @@ export function draftTeam(input: DraftInput): DraftResult {
     const measured = shortlist.map(({ cand, breakdown }) => {
       const setCtx = setContext(team, plan, threats, format, options.spice);
       const generated = buildSet(cand.species.name, setCtx);
-      const row = verdictRow(generated.set, threats, format, field);
+      const measured = measureAgainst(generated.set, threats, format, field);
+      const row = measured.scores;
       // Credit only the roles the finished set actually carries. What a Pokémon
       // *could* learn is not what it brought.
+      // Only roles the team genuinely wanted. "Nothing else brings screens" is a
+      // fact about the team, not a reason to have drafted this Pokémon.
       const newRoles = rolesOfSet(generated.set, format).filter(
-        (r) => (ctx.roles[r] ?? 0) === 0 && r !== 'protect',
+        (r) => (ctx.roles[r] ?? 0) === 0 && r !== 'protect' && CORE_ROLES.has(r) &&
+          (r !== 'trickRoom' || plan.tempo === 'slow'),
       );
       const newCoverage = [...ctx.gaps]
         .filter((gap) => (ctx.gapWeight.get(gap) ?? 0) > 0)
@@ -824,6 +879,7 @@ export function draftTeam(input: DraftInput): DraftResult {
         newRoles,
         newCoverage,
         synergies,
+        walls: measured.walls,
         total: breakdown.total + improvement * MATCHUP_WEIGHT + synergyScore(synergies),
       };
     }).sort((a, b) => b.total - a.total);
@@ -917,6 +973,8 @@ interface Measured {
   newCoverage: TypeName[];
   /** Pairings this Pokémon forms with the team it is joining. */
   synergies: SynergyHit[];
+  /** Threats it simply does not fall to. */
+  walls: { name: string; usage: number; hits: number; move: string }[];
 }
 
 /** Turn the winning score into the two or three sentences that justify it. */

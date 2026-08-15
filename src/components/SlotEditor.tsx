@@ -6,6 +6,7 @@ import {
   natureLabel, natureModifier, toID,
 } from '../data/dex';
 import { ITEM_CATEGORY_LABEL, itemCatalogue } from '../data/items';
+import { MOVE_CATEGORY_LABEL, moveCatalogue } from '../data/moves';
 import { CONFIDENCE_LABEL, legalMegas, rosterConfidence } from '../data/roster';
 import { displayName } from '../engine/calc';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, computeStats, resolveForm, spTotal } from '../engine/stats';
@@ -61,28 +62,27 @@ function SlotEditorInner({ index, issues }: { index: number; issues: LegalityIss
   );
 
   const moveOptions: ComboOption[] = useMemo(() => {
-    const source = learnset.length ? learnset : [];
-    return source.map((name) => {
-      const m = getMove(name)!;
-      return {
-        value: m.name,
-        label: m.name,
-        keywords: `${m.type} ${m.category}`,
-        sublabel: (
-          <>
-            <TypeBadge type={m.type} small />
-            <CategoryBadge category={m.category} />
-            <span className="muted small">
-              {m.category === 'Status' ? 'no damage' : `${m.basePower || '—'} BP`}
-              {' · '}{m.accuracy === true ? '—' : `${m.accuracy}%`}
-              {m.target === 'allAdjacentFoes' || m.target === 'allAdjacent' ? ' · spread' : ''}
-              {m.priority !== 0 ? ` · pri ${m.priority > 0 ? '+' : ''}${m.priority}` : ''}
-            </span>
-          </>
-        ),
-      };
-    });
-  }, [learnset]);
+    if (!learnset.length) return [];
+    return moveCatalogue(member?.species ?? '').map(({ move: m, category, usage }) => ({
+      value: m.name,
+      label: m.name,
+      keywords: `${m.type} ${m.category} ${MOVE_CATEGORY_LABEL[category]}`,
+      group: MOVE_CATEGORY_LABEL[category],
+      sublabel: (
+        <>
+          <TypeBadge type={m.type} small />
+          <CategoryBadge category={m.category} />
+          <span className="muted small">
+            {m.category === 'Status' ? 'no damage' : `${m.basePower || '—'} BP`}
+            {' · '}{m.accuracy === true ? '—' : `${m.accuracy}%`}
+            {m.target === 'allAdjacentFoes' || m.target === 'allAdjacent' ? ' · spread' : ''}
+            {m.priority !== 0 ? ` · pri ${m.priority > 0 ? '+' : ''}${m.priority}` : ''}
+            {usage > 0 ? ` · on ${Math.round(usage * 100)}% of the metagame` : ''}
+          </span>
+        </>
+      ),
+    }));
+  }, [learnset, member?.species]);
 
   const form = useMemo(() => (member ? resolveForm(member, format) : null), [member, format]);
 

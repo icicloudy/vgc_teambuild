@@ -544,6 +544,68 @@ console.log('\n=== Set coherence ===');
   else ok(`cohesion separates a built core (${cohesive}) from unrelated picks (${loose})`);
 }
 
+console.log('\n=== Judgement ===');
+{
+  const threatsPrepared = prepareThreats(BUILT_IN_THREATS, format);
+  const ctxFor = (planId: PlanId) => ({
+    format, team: [], plan: getPlan(planId), threats: threatsPrepared, spice: 0, allowMega: false,
+  });
+
+  // Screens and recovery are choices, not requirements: neither should be forced
+  // onto a Pokémon that has no use for them.
+  const frail = buildSet('Alakazam', ctxFor('balance'));
+  const screensOnFrail = frail.set.moves.some((m) => ['Reflect', 'Light Screen'].includes(m));
+  if (screensOnFrail && frail.notes.some((n) => /nothing else on the team brings screens/.test(n))) {
+    fail('screens are still justified as a missing team role');
+  } else ok('screens are not treated as a standing requirement');
+
+  const recoveryNote = frail.notes.some((n) => /brings recovery/.test(n));
+  if (recoveryNote) fail('recovery is still justified as a missing team role');
+  else ok('recovery is not treated as a standing requirement');
+
+  // A Prankster supporter is allowed to carry no attacking move at all.
+  const sableye = buildSet('Sableye', ctxFor('bulky'));
+  const attacks = sableye.set.moves.filter((m) => {
+    const mv = getMove(m);
+    return !!mv && mv.category !== 'Status';
+  }).length;
+  if (attacks > 2) fail(`Sableye drafted ${attacks} attacking moves; it is a support Pokémon`);
+  else ok(`dedicated support Pokémon are allowed to be support (Sableye: ${sableye.set.moves.filter(Boolean).join(', ')})`);
+
+  // A move that only works under weather should pull its enabler into the team.
+  const archaludon = {
+    ...emptySet('Archaludon'),
+    level: 50,
+    ability: 'Stamina',
+    item: 'Leftovers',
+    nature: 'Modest',
+    moves: ['Electro Shot', 'Flash Cannon', 'Dragon Pulse', 'Protect'],
+    sp: { hp: 32, atk: 0, def: 2, spa: 32, spd: 0, spe: 0 },
+  };
+  const rainDraft = draftTeam({
+    team: [archaludon], format, threats: BUILT_IN_THREATS, field: defaultField('Doubles'),
+    override: null, options: { plan: 'auto', spice: 0.3, banned: [], seed: 8 },
+  });
+  if (rainDraft.plan.weather !== 'Rain') {
+    fail(`Electro Shot did not steer the plan to rain (got ${rainDraft.plan.label})`);
+  } else ok('a weather-locked move steers the plan to its weather');
+
+  const setter = rainDraft.team.find(
+    (m) => toID(resolveForm(m, format)?.ability ?? '') === 'drizzle',
+  );
+  if (!setter) fail('a rain plan was drafted without anything that sets rain');
+  else ok(`the rain plan drafted its setter (${setter.species}, Drizzle)`);
+
+  // …and nothing should carry the manual version of weather it already gets free.
+  for (const member of rainDraft.team) {
+    const ability = toID(resolveForm(member, format)?.ability ?? '');
+    if (ability === 'drizzle' && member.moves.some((m) => toID(m) === 'raindance')) {
+      fail(`${member.species} has Drizzle and Rain Dance`);
+    }
+  }
+  ok('no set carries a weather move its own ability already provides');
+}
+
 console.log('\n=== Champions availability ===');
 {
   // The roster is final-stage only, with a handful of documented exceptions.

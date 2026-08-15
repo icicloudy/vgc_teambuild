@@ -3,6 +3,7 @@ import type { PokemonSet, StatID } from '../types';
 import { STATS, STAT_NAMES } from '../types';
 import { NATURES, abilitiesFor, getMove, natureLabel } from '../data/dex';
 import { ITEM_CATEGORY_LABEL, itemCatalogue } from '../data/items';
+import { MOVE_CATEGORY_LABEL, moveCatalogue } from '../data/moves';
 import type { RosterOverride } from '../data/roster';
 import type { FormatRules } from '../types';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, resolveForm, spTotal } from '../engine/stats';
@@ -40,24 +41,22 @@ export function CustomSetEditor({
   );
 
   const moveOptions = useMemo<ComboOption[]>(
-    () => learnset.map((name) => {
-      const m = getMove(name)!;
-      return {
-        value: m.name,
-        label: m.name,
-        keywords: `${m.type} ${m.category}`,
-        sublabel: (
-          <>
-            <TypeBadge type={m.type} small />
-            <CategoryBadge category={m.category} />
-            <span className="muted small">
-              {m.category === 'Status' ? 'no damage' : `${m.basePower || '—'} BP`}
-            </span>
-          </>
-        ),
-      };
-    }),
-    [learnset],
+    () => (learnset.length ? moveCatalogue(set.species) : []).map(({ move: m, category }) => ({
+      value: m.name,
+      label: m.name,
+      keywords: `${m.type} ${m.category} ${MOVE_CATEGORY_LABEL[category]}`,
+      group: MOVE_CATEGORY_LABEL[category],
+      sublabel: (
+        <>
+          <TypeBadge type={m.type} small />
+          <CategoryBadge category={m.category} />
+          <span className="muted small">
+            {m.category === 'Status' ? 'no damage' : `${m.basePower || '—'} BP`}
+          </span>
+        </>
+      ),
+    })),
+    [learnset, set.species],
   );
 
   const setSP = (stat: StatID, raw: number) => {

@@ -1,5 +1,5 @@
 import type { FormatRules, PokemonSet } from '../types';
-import { effectiveness, toID } from '../data/dex';
+import { effectiveness, getMove, toID } from '../data/dex';
 import { resolveForm } from './stats';
 
 /**
@@ -110,6 +110,66 @@ const TERRAIN_PAIRS: { setters: string[]; payoffMoves: string[]; label: string }
   { setters: ['psychicsurge'], payoffMoves: ['expandingforce'], label: 'Psychic Terrain' },
 ];
 
+/**
+ * Moves that are conditional on weather, and what the weather does for them.
+ *
+ * These are the most obvious partnerships in the game and the easiest to miss
+ * mechanically: an Archaludon with Electro Shot is asking for a Drizzle partner in
+ * a way no coverage table will ever show, because without rain the move spends a
+ * turn charging and with it the move is simply better than everything else it
+ * could be doing.
+ */
+const WEATHER_DEPENDENT: Record<string, { weather: string; effect: string }> = {
+  electroshot: { weather: 'rain', effect: 'fires the turn it is used instead of charging' },
+  solarbeam: { weather: 'sun', effect: 'fires the turn it is used instead of charging' },
+  solarblade: { weather: 'sun', effect: 'fires the turn it is used instead of charging' },
+  thunder: { weather: 'rain', effect: 'stops missing' },
+  hurricane: { weather: 'rain', effect: 'stops missing' },
+  blizzard: { weather: 'snow', effect: 'stops missing' },
+  auroraveil: { weather: 'snow', effect: 'works at all' },
+  growth: { weather: 'sun', effect: 'raises two stages instead of one' },
+  synthesis: { weather: 'sun', effect: 'heals two thirds instead of half' },
+  morningsun: { weather: 'sun', effect: 'heals two thirds instead of half' },
+  moonlight: { weather: 'sun', effect: 'heals two thirds instead of half' },
+  weatherball: { weather: 'any', effect: 'doubles in power and changes type' },
+};
+
+const WEATHER_LABEL: Record<string, string> = {
+  sun: 'sun', rain: 'rain', sand: 'sand', snow: 'snow',
+};
+
+/**
+ * The weather this Pokémon's moves are asking for, if any. Used by plan inference:
+ * a team carrying Electro Shot is telling you it wants rain before you have chosen
+ * anything at all.
+ */
+export function weatherWantedBy(set: PokemonSet, format: FormatRules): string | null {
+  const side = sideOf(set, format);
+  if (!side) return null;
+  for (const [id, need] of Object.entries(WEATHER_DEPENDENT)) {
+    if (side.moveIds.has(id) && need.weather !== 'any') return need.weather;
+  }
+  return null;
+}
+
+/** Which weather does this side set, if any? */
+function weatherSetBy(side: Side): string | null {
+  for (const w of WEATHER_PAIRS) {
+    if (w.setters.includes(side.ability) || has(side, w.setterMoves)) return w.weather;
+  }
+  return null;
+}
+
+/** A move on this side that wants a particular weather, and what it gains. */
+function weatherWanted(side: Side, weather: string): { move: string; effect: string } | null {
+  for (const [id, need] of Object.entries(WEATHER_DEPENDENT)) {
+    if (!side.moveIds.has(id)) continue;
+    if (need.weather !== 'any' && need.weather !== weather) continue;
+    return { move: id, effect: need.effect };
+  }
+  return null;
+}
+
 const has = (side: Side, ids: string[]) => ids.some((id) => side.moveIds.has(id));
 
 /**
@@ -164,6 +224,28 @@ const RULES: {
     detect: (c, p) => WEATHER_PAIRS.some((w) =>
       (w.setters.includes(c.ability) || has(c, w.setterMoves)) &&
       (w.payoffAbilities.includes(p.ability) || p.types.includes(w.boostedType))),
+  },
+  {
+    synergy: {
+      id: 'weather-enables-move',
+      weight: 40,
+      describe: (c, p) => `${c} sets the weather that makes ${p}'s move work.`,
+    },
+    detect: (c, p) => {
+      const weather = weatherSetBy(c);
+      return !!weather && !!weatherWanted(p, weather);
+    },
+  },
+  {
+    synergy: {
+      id: 'move-wants-weather',
+      weight: 40,
+      describe: (c, p) => `${p}'s weather is what ${c}'s moves were written for.`,
+    },
+    detect: (c, p) => {
+      const weather = weatherSetBy(p);
+      return !!weather && !!weatherWanted(c, weather);
+    },
   },
   {
     synergy: {
@@ -275,11 +357,33 @@ export function synergiesWith(
       if (seen.has(rule.synergy.id)) continue;
       if (!rule.detect(c, p)) continue;
       seen.add(rule.synergy.id);
-      out.push({ ...rule.synergy, partnerIndex: i, partnerName: nameOf(member) });
+      out.push({
+        ...rule.synergy,
+        // The weather rules can name the move and the effect, which reads far
+        // better than the generic sentence.
+        describe: describeWeather(rule.synergy, c, p) ?? rule.synergy.describe,
+        partnerIndex: i,
+        partnerName: nameOf(member),
+      });
     }
   });
 
   return out.sort((a, b) => b.weight - a.weight);
+}
+
+function describeWeather(synergy: Synergy, c: Side, p: Side): Synergy['describe'] | null {
+  const setter = synergy.id === 'weather-enables-move' ? c : p;
+  const user = synergy.id === 'weather-enables-move' ? p : c;
+  if (synergy.id !== 'weather-enables-move' && synergy.id !== 'move-wants-weather') return null;
+  const weather = weatherSetBy(setter);
+  if (!weather) return null;
+  const want = weatherWanted(user, weather);
+  if (!want) return null;
+  const moveName = getMove(want.move)?.name ?? want.move;
+  const label = WEATHER_LABEL[weather] ?? weather;
+  return synergy.id === 'weather-enables-move'
+    ? (cand, partner) => `${cand}'s ${label} is what makes ${partner}'s ${moveName} work — it ${want.effect}.`
+    : (cand, partner) => `${partner}'s ${label} makes ${cand}'s ${moveName} work — it ${want.effect}.`;
 }
 
 /** The score contribution of those pairings, with diminishing returns. */

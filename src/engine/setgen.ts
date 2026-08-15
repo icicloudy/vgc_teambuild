@@ -156,6 +156,47 @@ const SUPPORT_SCALE = 1.6;
 const ATTACK_RETURNS = [1, 0.82, 0.5, 0.34];
 
 /**
+ * Which roles are actual needs, and which are merely absent.
+ *
+ * A team without speed control has a problem. A team without screens does not —
+ * screens are a choice that suits some teams, and "nothing else on the team
+ * brings screens" is not a reason to put Light Screen on a Pokémon, any more than
+ * "nothing else brings Recover" is a reason to give a frail attacker Recover. So
+ * each role is either a standing need, or conditional on the team asking for it.
+ */
+function roleIsNeeded(key: RoleKey, ctx: SetContext, stats: StatsTable): boolean {
+  switch (key) {
+    // The doubles fundamentals: a team really does want each of these once.
+    case 'speedControl': case 'fakeOut': case 'redirection': case 'protect':
+    case 'intimidate': case 'pivot':
+      return true;
+    // Only under a plan that inverts the speed order.
+    case 'trickRoom':
+      return ctx.plan.tempo === 'slow';
+    // Screens suit teams that cannot take a hit, and plans that want a long game.
+    case 'screens':
+      return (ctx.plan.roleWeights.screens ?? 0) > 1 || teamIsFrail(ctx);
+    // Recovery is a property of the Pokémon, not a hole in the team: it belongs on
+    // something bulky enough to be worth healing.
+    case 'recovery':
+      return stats.hp + stats.def + stats.spd >= 300;
+    // Descriptive, not roles you go shopping for.
+    default:
+      return false;
+  }
+}
+
+/** Would this team rather be behind screens? */
+function teamIsFrail(ctx: SetContext): boolean {
+  if (!ctx.team.length) return false;
+  const bulks = ctx.team.map((m) => {
+    const f = resolveForm(m, ctx.format);
+    return f ? f.baseStats.hp + f.baseStats.def + f.baseStats.spd : 0;
+  });
+  return bulks.reduce((a, b) => a + b, 0) / bulks.length < 270;
+}
+
+/**
  * How a move changes the user's own stats, and which moves care.
  *
  * Scale Shot lowers Defence to raise Speed; Body Press attacks *with* Defence.
@@ -297,11 +338,16 @@ export function buildSet(species: string, ctx: SetContext, base?: PokemonSet): G
   const stats = resolved?.baseStats ?? dexSpecies.baseStats;
   const pool = movePool(set.species, ctx);
   let bias: 'physical' | 'special' = stats.atk >= stats.spa ? 'physical' : 'special';
-  const archetype = pickArchetype(stats, pool);
+  const archetype = pickArchetype(stats, pool, resolved?.ability ?? set.ability, ctx);
 
   /* ---- Moves -------------------------------------------------------- */
   if (givenMoves.length < 4) {
-    const picked = pickMoves(set, pool, { bias, archetype, ctx, keep: givenMoves });
+    const picked = pickMoves(set, pool, {
+      bias,
+      minAttacks: minimumAttacks(archetype, resolved?.ability ?? set.ability, pool),
+      ctx,
+      keep: givenMoves,
+    });
     set.moves = picked.moves;
     notes.push(...picked.notes);
     // A movepool can overrule the stat line: a Pokémon with better Attack that only
@@ -448,15 +494,86 @@ function chargedByWeather(id: string, ctx: SetContext): boolean {
  * does not make a base-135 attacker into a supporter — every VGC support Pokémon
  * worth the slot is one that could not have hit harder instead.
  */
-function pickArchetype(stats: StatsTable, pool: PoolEntry[]): Archetype {
+/**
+ * Abilities that exist to make a Pokémon hit harder. A Pokémon carrying one is
+ * meant to attack, whatever else its movepool offers.
+ */
+const OFFENSIVE_ABILITY = new Set([
+  'hugepower', 'purepower', 'adaptability', 'sheerforce', 'technician', 'guts',
+  'moxie', 'beastboost', 'transistor', 'dragonsmaw', 'steelworker', 'toughclaws',
+  'strongjaw', 'punkrock', 'sharpness', 'skilllink', 'protean', 'libero',
+  'hustle', 'analytic', 'tintedlens', 'solarpower', 'swiftswim', 'chlorophyll',
+  'sandrush', 'slushrush', 'unburden', 'speedboost',
+]);
+
+/** Abilities whose whole point is doing something other than damage. */
+const SUPPORT_ABILITY = new Set([
+  'prankster', 'friendguard', 'lightningrod', 'stormdrain', 'intimidate',
+  'hospitality', 'regenerator', 'healer', 'triage', 'goodasgold', 'armortail',
+]);
+
+/**
+ * What this Pokémon is for.
+ *
+ * Three kinds, because there are three kinds. Some Pokémon exist to attack — a
+ * damage-multiplying ability, or a wide offensive movepool and nothing else to
+ * offer. Some exist to support: Prankster users, redirectors, the ones whose
+ * whole value is a move that does not deal damage. And a lot of them are neither
+ * on their own — Torkoal is an attacker on a Trick Room team and a supporter next
+ * to something that wants Helping Hand — so for those the *team* decides, which
+ * is the only place that question can honestly be answered.
+ */
+function pickArchetype(stats: StatsTable, pool: PoolEntry[], ability: string, ctx: SetContext): Archetype {
   const offense = Math.max(stats.atk, stats.spa);
   const bulk = stats.hp + stats.def + stats.spd;
-  const hasRealSupport = pool.some((p) => p.support >= 40);
+  const abilityId = toID(ability);
+  const supportMoves = pool.filter((p) => p.support >= 40).length;
+  const topSupport = pool.reduce((n, p) => Math.max(n, p.support), 0);
 
+  // Dedicated support: the ability or the movepool says so plainly.
+  if (abilityId === 'prankster' && supportMoves >= 2) return 'support';
+  if (SUPPORT_ABILITY.has(abilityId) && offense <= 115 && supportMoves >= 2) return 'support';
+  if (topSupport >= 56 && offense < 100) return 'support';
+
+  // Dedicated offense: an ability that multiplies damage, or a stat line with
+  // nothing else to do.
+  if (OFFENSIVE_ABILITY.has(abilityId) && offense >= 95) return 'attacker';
+  if (offense >= 120 && topSupport < 46) return 'attacker';
+
+  // Flexible. Which way it leans is a question about the team, not the Pokémon:
+  // a team that already has four attackers wants glue, and one with none wants
+  // damage.
+  const attackers = ctx.team.filter((m) => {
+    const f = resolveForm(m, ctx.format);
+    if (!f) return false;
+    const damaging = m.moves.filter((x) => {
+      const mv = getMove(x);
+      return !!mv && mv.category !== 'Status';
+    }).length;
+    return damaging >= 3 || Math.max(f.baseStats.atk, f.baseStats.spa) >= 115;
+  }).length;
+
+  if (supportMoves >= 2 && attackers >= 3) return 'support';
   if (offense >= 100 || stats.spe >= 100) return 'attacker';
   if (offense < 85 && bulk >= 300) return 'wall';
-  if (hasRealSupport) return 'support';
+  if (supportMoves >= 1) return 'support';
   return offense >= 85 ? 'attacker' : 'wall';
+}
+
+/**
+ * How many damaging moves this set must end up with.
+ *
+ * Zero is a legitimate answer. A Prankster supporter with three moves that all do
+ * something better than damage — Sableye, Meowstic — is a real Pokémon, and
+ * forcing a token attack onto it makes it worse. It takes a genuinely support-only
+ * ability and a movepool deep enough to fill the slots to get there.
+ */
+function minimumAttacks(archetype: Archetype, ability: string, pool: PoolEntry[]): number {
+  if (archetype === 'attacker') return 2;
+  const abilityId = toID(ability);
+  const realSupport = pool.filter((p) => p.support >= 34).length;
+  if (abilityId === 'prankster' && realSupport >= 4) return 0;
+  return 1;
 }
 
 /**
@@ -689,12 +806,12 @@ function pickMoves(
   pool: PoolEntry[],
   opts: {
     bias: 'physical' | 'special';
-    archetype: Archetype;
+    minAttacks: number;
     ctx: SetContext;
     keep: string[];
   },
 ): { moves: string[]; notes: string[] } {
-  const { bias, archetype, ctx, keep } = opts;
+  const { bias, minAttacks, ctx, keep } = opts;
   const form = resolveForm(set, ctx.format);
   const types = form?.types ?? [];
   const stats = form?.baseStats ?? { hp: 80, atk: 80, def: 80, spa: 80, spd: 80, spe: 80 };
@@ -746,15 +863,21 @@ function pickMoves(
     const key = ROLE_OF_MOVE[p.move.id];
     if (key) {
       value *= ctx.plan.roleWeights[key] ?? 1;
-      // The first carrier of a role is worth several times the second.
       const held = teamRoles[key] ?? 0;
-      value *= held === 0 ? 1.6 : held === 1 ? 0.6 : 0.25;
+      // The first carrier of a role the team *needs* is worth several times the
+      // second. A role it merely lacks gets no bonus at all.
+      if (roleIsNeeded(key, ctx, stats)) value *= held === 0 ? 1.6 : held === 1 ? 0.6 : 0.25;
+      else value *= held === 0 ? 1 : 0.5;
     }
-    // The plan needs exactly one carrier. Once it is up, a second copy is a wasted
-    // move slot on a team that already has it.
+    // The plan needs exactly one carrier, and a Pokémon that sets the weather with
+    // its ability is a better carrier than any move. Only teach the manual version
+    // when nothing on the team brings it for free.
     if (planNeedsCarrier && ctx.plan.enablerMoves.some((m) => toID(m) === p.move.id)) {
-      value += 70;
+      value += teamHasEnablerAbility(ctx) ? 0 : 70;
     }
+    // Weather that the team already gets for free from an ability is not worth a
+    // move slot on anyone.
+    if (WEATHER_MOVE_ABILITY[p.move.id] && teamHasEnablerAbility(ctx)) value *= 0.2;
     return value * SUPPORT_SCALE;
   };
 
@@ -764,7 +887,10 @@ function pickMoves(
     .filter((p) => (p.move.id === 'trickroom' ? ctx.plan.tempo === 'slow' : true))
     .filter((p) => (p.move.id === 'tailwind' ? ctx.plan.tempo !== 'slow' : true))
     // Aurora Veil fails outside snow, so it needs somebody on the team to set it.
-    .filter((p) => (p.move.id === 'auroraveil' ? teamSetsSnow(ctx) : true));
+    .filter((p) => (p.move.id === 'auroraveil' ? teamSetsSnow(ctx) : true))
+    // And a Pokémon that sets the weather with its ability has no use for the move
+    // that sets the same weather.
+    .filter((p) => !weatherMoveIsRedundant(p.move, ability));
 
   const candidates = usable.map((p) => {
     const support = p.support > 0 ? supportValue(p) : 0;
@@ -818,9 +944,8 @@ function pickMoves(
       .sort((a, b) => b.value - a.value);
     if (!ranked.length) break;
 
-    // The set must be able to attack. A support Pokémon can get away with one
-    // damaging move; something with a 120 Attack stat cannot.
-    const minAttacks = archetype === 'attacker' ? 2 : 1;
+    // The set must be able to attack — usually. Some Pokémon are better with no
+    // attacking move at all, and minimumAttacks is where that is decided.
     const slotsLeft = 4 - chosen.length;
     const needsDamage = slotsLeft <= minAttacks - attacksTaken;
     const pickFrom = needsDamage ? ranked.filter((r) => r.c.isAttack) : ranked;
@@ -841,7 +966,10 @@ function pickMoves(
     } else {
       const key = ROLE_OF_MOVE[winner.entry.move.id];
       if (key) rolesTaken.add(key);
-      if (key && (teamRoles[key] ?? 0) === 0 && key !== 'protect') {
+      // Only worth saying when the role was a need. "Nothing else brings screens"
+      // is a fact, not a justification.
+      if (key && (teamRoles[key] ?? 0) === 0 && key !== 'protect' &&
+          roleIsNeeded(key, ctx, stats)) {
         notes.push(`${winner.entry.move.name} — nothing else on the team brings ${ROLE_LABEL[key]}.`);
       }
     }
@@ -894,6 +1022,26 @@ export function rolesOfSet(set: PokemonSet, format: FormatRules): RoleKey[] {
   }
   if (toID(resolveForm(set, format)?.ability ?? '') === 'intimidate') out.add('intimidate');
   return [...out];
+}
+
+/** Weather-setting moves, and the ability that makes each one redundant. */
+const WEATHER_MOVE_ABILITY: Record<string, string[]> = {
+  sunnyday: ['drought', 'orichalcumpulse'],
+  raindance: ['drizzle'],
+  sandstorm: ['sandstream'],
+  snowscape: ['snowwarning'],
+};
+
+function weatherMoveIsRedundant(move: Move, ability: string): boolean {
+  return (WEATHER_MOVE_ABILITY[move.id] ?? []).includes(toID(ability));
+}
+
+/** Does anything on the team set the plan up with an ability rather than a move? */
+function teamHasEnablerAbility(ctx: SetContext): boolean {
+  return ctx.team.some((m) => {
+    const ability = toID(resolveForm(m, ctx.format)?.ability ?? '');
+    return ctx.plan.enablerAbilities.some((a) => toID(a) === ability);
+  });
 }
 
 /** Does the team already carry the move or ability the plan is built on? */

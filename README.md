@@ -53,7 +53,9 @@ inside their panels rather than stretching the page.
 **Build** — six slots with a species search that takes what a Pokémon *does*, not just its
 name: type `intimidate`, `fake out` or `steel`, and stack them (`fake out intimidate`) to
 intersect. Unevolved Pokémon sort last and are labelled, so they never crowd out real options.
-Learnset-filtered move pickers, an item list trimmed to what a Champions battle can actually
+Move and item pickers that are grouped and ordered rather than alphabetical — the moves the
+format actually runs come first, with the share of the metagame carrying each one, measured
+from ladder data. An item list trimmed to what a Champions battle can actually
 use and grouped with the staples first, Stat Point sliders with live totals and a marker
 where the 66-point budget runs out, and Mega Evolution handled the way the game handles it: hold the
 stone, and the forme, typing, ability and stats all switch over everywhere in the app. Showdown
@@ -132,6 +134,15 @@ down to Quiet Natures and zero Speed investment. The spice dial gates the strang
 and widens the draw, so the difference between chalk and spice is a different *team*, not
 a worse one.
 
+**Some partnerships are obvious and should be treated that way.** An Archaludon holding
+Electro Shot is asking for rain: without it the move spends a turn charging, with it the
+move is better than anything else that Pokémon could be doing. The same goes for Solar Beam
+and sun, Hurricane and Thunder wanting rain for the accuracy, Aurora Veil needing snow. So
+weather-dependent moves are modelled: they steer the plan before anything has been drafted,
+they pull the setter in — as an *ability*, since Drizzle is free and Rain Dance costs a slot
+and a turn, so a rain team drafts Pelipper first the way a person would — and the card says
+which move it was and what the weather does for it.
+
 **A team is a set of relationships, not a pile of good Pokémon.** The scoring above will
 happily assemble six Pokémon that each answer something and never help each other, so
 `src/engine/synergy.ts` models the pairings directly: the redirector that buys the slow
@@ -164,6 +175,19 @@ decides the pick, and it is why the reasons quote real matchups.
 
 Set generation follows the same rule — every choice has to be derivable:
 
+- **Roles are needs, not a checklist.** A team without speed control has a problem; a
+  team without screens does not. Speed control, Fake Out, redirection, Intimidate, Protect
+  and a pivot move are standing needs; Trick Room is one only under a plan that inverts the
+  speed order; screens are one only for a team too frail to take a hit; recovery belongs on
+  something bulky enough to be worth healing. Roles outside that are never chased, and never
+  cited as a justification — "nothing else brings screens" is a fact about the team, not a
+  reason to have drafted anything.
+- **Three kinds of Pokémon.** Some exist to attack: a damage-multiplying ability, or a wide
+  offensive movepool and nothing else to offer. Some exist to support, and a Prankster
+  Pokémon with four things better to do than deal damage is allowed to carry no attacking
+  move at all. Most are neither on their own — Torkoal is an attacker on a Trick Room team
+  and a supporter next to something that wants Helping Hand — so for those the *team*
+  decides, which is the only place that question can honestly be answered.
 - **Moves** — every damaging move has to earn its slot one of four ways: **STAB** (measured
   after any ability that rewrites its type, so Sylveon's Hyper Voice counts as Fairy),
   **coverage** — meaning it hits a type the team cannot otherwise hit, which is a property
@@ -314,11 +338,11 @@ tells you where it is guessing:
 
 ```
 src/
-  data/       dex wrappers, Mega registry, formats, roster model, item catalogue,
-              species search, threat database
+  data/       dex wrappers, Mega registry, formats, roster model, item and move
+              catalogues, species search, threat database
   engine/     stats · damage calc · legality · speed · coverage · threat matrix
-              · Stat Point optimizer · game plans · set synthesis · the drafter
-              · suggestions · Showdown import-export
+              · Stat Point optimizer · game plans · set synthesis · pair synergy
+              · the drafter · suggestions · Showdown import-export
   components/ UI
 scripts/
   build-dataset.mjs distils @pkmn/dex into the compact dataset the app ships

@@ -132,6 +132,13 @@ const roleDupes = await page.evaluate(() => {
 });
 check('no set carries two moves doing the same job', roleDupes === 0);
 
+/* ---- justifications are not all the same shape ---- */
+const kindVariety = new Set(reasonKinds);
+check('reasons come in several kinds', kindVariety.size >= 3);
+check('no pick is justified by a missing screens or recovery slot',
+  !(await page.locator('.draft-reasons').allInnerTexts())
+    .some((t) => /brings screens|brings recovery/.test(t)));
+
 /* ---- alternates are offered ---- */
 check('alternates are offered', (await page.locator('.draft-alts .mon-chip').count()) > 0);
 
@@ -196,6 +203,23 @@ check('dead items are gone (no evolution stones)', !itemList.all.includes('Fire 
 check('dead items are gone (no Poké Balls)', !itemList.all.some((i) => /Poke Ball|Ultra Ball/.test(i)));
 check('dead items are gone (no Z-Crystals)', !itemList.all.some((i) => / Z$/.test(i)));
 await page.screenshot({ path: `${OUT}/items.png` });
+
+/* ---- the move picker is ordered and grouped like the item picker ---- */
+await page.keyboard.press('Escape');
+await page.waitForTimeout(200);
+const moveCombo = page.locator('.move-slot .combo-value').first();
+if (await moveCombo.count()) {
+  await moveCombo.click();
+  await page.waitForSelector('.combo-pop');
+  const moveList = await page.evaluate(() => ({
+    groups: [...document.querySelectorAll('.combo-pop .combo-group')].map((g) => g.textContent),
+    first: [...document.querySelectorAll('.combo-pop .combo-opt-label')].slice(0, 8).map((o) => o.textContent),
+  }));
+  check('moves are grouped', moveList.groups.length >= 2);
+  check('the moves the format runs come first', /Commonly used/.test(moveList.groups[0] ?? ''));
+  check('Protect is near the top', moveList.first.includes('Protect'));
+  await page.keyboard.press('Escape');
+}
 
 /* ---- report ---- */
 console.log('\nDraft checks');
