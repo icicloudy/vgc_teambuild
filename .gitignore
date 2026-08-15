@@ -32,3 +32,6 @@ artifact/
 
 # Ninety build output
 dist-ninety
+
+# Ninety single-file build output
+dist-ninety-artifact

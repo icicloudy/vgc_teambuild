@@ -23,7 +23,8 @@
     "build:ninety": "npm run data:ninety && tsc -b && vite build --config vite.ninety.config.ts",
     "preview:ninety": "vite preview --config vite.ninety.config.ts",
     "check:ninety": "tsx scripts/ninety-check.ts",
-    "smoke:ninety": "node scripts/ninety-smoke.mjs"
+    "smoke:ninety": "node scripts/ninety-smoke.mjs",
+    "build:ninety-artifact": "npm run data:ninety && tsc -b && vite build --config vite.ninety-artifact.config.ts && node scripts/make-artifact.mjs dist-ninety-artifact/index.html artifact/ninety.html"
   },
   "dependencies": {
     "@smogon/calc": "^0.11.0",
