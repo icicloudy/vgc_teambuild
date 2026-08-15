@@ -211,13 +211,23 @@ const moveCombo = page.locator('.move-slot .combo-value').first();
 if (await moveCombo.count()) {
   await moveCombo.click();
   await page.waitForSelector('.combo-pop');
-  const moveList = await page.evaluate(() => ({
-    groups: [...document.querySelectorAll('.combo-pop .combo-group')].map((g) => g.textContent),
-    first: [...document.querySelectorAll('.combo-pop .combo-opt-label')].slice(0, 8).map((o) => o.textContent),
-  }));
-  check('moves are grouped', moveList.groups.length >= 2);
-  check('the moves the format runs come first', /Commonly used/.test(moveList.groups[0] ?? ''));
-  check('Protect is near the top', moveList.first.includes('Protect'));
+  const moveList = await page.evaluate(() => {
+    // Walk the list in document order so each option lands in the section above it.
+    const sections = [];
+    for (const el of document.querySelectorAll('.combo-pop .combo-group, .combo-pop .combo-opt-label')) {
+      if (el.classList.contains('combo-group')) sections.push({ name: el.textContent, items: [] });
+      else if (sections.length) sections[sections.length - 1].items.push(el.textContent);
+    }
+    return sections;
+  });
+  const common = moveList.find((s) => /Commonly used/.test(s.name ?? ''));
+  check('moves are grouped', moveList.length >= 2);
+  check('the moves the format runs come first', /Commonly used/.test(moveList[0]?.name ?? ''));
+  check('the common section holds the moves the format runs',
+    !!common && ['Protect', 'Fake Out'].some((m) => common.items.includes(m)));
+  check('each section is alphabetical', moveList.every(
+    (s) => s.items.every((m, i) => i === 0 || s.items[i - 1].localeCompare(m) <= 0),
+  ));
   await page.keyboard.press('Escape');
 }
 

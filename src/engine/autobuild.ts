@@ -750,7 +750,10 @@ export function draftOne(species: string, input: DraftInput) {
     : getPlan(input.options.plan);
   return buildSet(
     species,
-    setContext(input.team, plan, threats, input.format, input.options.spice),
+    setContext(input.team, plan, threats, input.format, input.options.spice, {
+      tuned: true,
+      seed: input.options.seed,
+    }),
   );
 }
 
@@ -773,7 +776,10 @@ export function draftTeam(input: DraftInput): DraftResult {
   team.forEach((member, i) => {
     const gaps = missingParts(member);
     if (!gaps.length) return;
-    const ctx = setContext(team.filter((_, j) => j !== i), plan, threats, format, options.spice);
+    const ctx = setContext(
+      team.filter((_, j) => j !== i), plan, threats, format, options.spice,
+      { tuned: true, seed: options.seed + i },
+    );
     const generated = buildSet(member.species, ctx, member);
     team[i] = generated.set;
     picks.push({
@@ -832,7 +838,9 @@ export function draftTeam(input: DraftInput): DraftResult {
     // Only the shortlist gets the expensive treatment: a real set, and a real
     // matrix against the metagame.
     const measured = shortlist.map(({ cand, breakdown }) => {
-      const setCtx = setContext(team, plan, threats, format, options.spice);
+      const setCtx = setContext(team, plan, threats, format, options.spice, {
+        seed: options.seed + team.length,
+      });
       const generated = buildSet(cand.species.name, setCtx);
       const measured = measureAgainst(generated.set, threats, format, field);
       const row = measured.scores;
@@ -891,15 +899,29 @@ export function draftTeam(input: DraftInput): DraftResult {
     const width = 1 + Math.round(options.spice * 5);
     const chosen = measured[Math.floor(random() * Math.min(width, measured.length))];
 
+    /*
+     * The eighteen candidates were compared with rough spreads, because solving a
+     * spread properly costs real damage calculations and doing that eighteen times
+     * over would not change which one wins. The one that does win gets the full
+     * treatment: its Stat Points are solved against actual targets.
+     */
     const slot = team.length;
-    team.push(chosen.generated.set);
+    const finalCtx = setContext(team, plan, threats, format, options.spice, {
+      tuned: true,
+      seed: options.seed + slot,
+    });
+    const final = buildSet(chosen.cand.species.name, finalCtx);
+    const finalSet = final.set;
+    team.push(finalSet);
     picks.push({
       slot,
-      set: chosen.generated.set,
-      species: chosen.generated.set.species,
+      set: finalSet,
+      species: finalSet.species,
       kind: 'new',
-      reasons: explain(chosen, ctx, plan),
-      notes: chosen.generated.notes,
+      reasons: explain(chosen, ctx, plan, finalSet),
+      // The notes have to describe the set you are looking at, which is the solved
+      // one — the rough build's reasoning was about a spread that got thrown away.
+      notes: final.notes,
       alternates: measured
         .filter((m) => m !== chosen)
         .slice(0, 3)
@@ -938,6 +960,7 @@ function setContext(
   threats: DraftThreat[],
   format: FormatRules,
   spice: number,
+  opts: { tuned?: boolean; seed?: number } = {},
 ): SetContext {
   return {
     format,
@@ -946,6 +969,8 @@ function setContext(
     threats,
     spice,
     allowMega: format.megaPerBattle > 0 && !team.some((m) => !!resolveForm(m, format)?.mega),
+    tuned: opts.tuned,
+    seed: opts.seed,
   };
 }
 
@@ -978,7 +1003,13 @@ interface Measured {
 }
 
 /** Turn the winning score into the two or three sentences that justify it. */
-function explain(m: Measured, ctx: ScoreContext, plan: Plan): DraftReason[] {
+function explain(
+  m: Measured,
+  ctx: ScoreContext,
+  plan: Plan,
+  /** The set that was actually kept, when it differs from the one measured. */
+  final?: PokemonSet,
+): DraftReason[] {
   const out: DraftReason[] = [];
   const name = displayName(m.generated.set.species);
 
@@ -1026,11 +1057,11 @@ function explain(m: Measured, ctx: ScoreContext, plan: Plan): DraftReason[] {
     });
   }
 
-  if (m.breakdown.plan >= 60) {
-    out.push({
-      kind: 'plan',
-      text: `Carries the ${plan.label.toLowerCase()} plan: ${planCarryNote(m, plan)}.`,
-    });
+  const carries = m.breakdown.plan >= 60
+    ? planCarryNote(m, plan, ctx.format, final)
+    : null;
+  if (carries) {
+    out.push({ kind: 'plan', text: `Carries the ${plan.label.toLowerCase()} plan: ${carries}.` });
   }
 
   const spe = m.cand.species.baseStats.spe;
@@ -1062,14 +1093,32 @@ function explain(m: Measured, ctx: ScoreContext, plan: Plan): DraftReason[] {
   return out.slice(0, 5);
 }
 
-function planCarryNote(m: Measured, plan: Plan): string {
-  const abilityMatch = m.cand.abilities.find(
-    (a) => plan.enablerAbilities.some((e) => toID(e) === toID(a)) ||
-      plan.payoffAbilities.some((e) => toID(e) === toID(a)),
-  );
+/**
+ * What this Pokémon actually contributes to the plan — read off the finished set
+ * rather than off what the species *could* have done. Qwilfish can have Swift Swim,
+ * but the Qwilfish on the team has Intimidate, and citing the ability it did not
+ * take is the drafter explaining a set nobody drafted.
+ */
+function planCarryNote(
+  m: Measured,
+  plan: Plan,
+  format: FormatRules,
+  final?: PokemonSet,
+): string | null {
+  const carries = (ability: string) =>
+    plan.enablerAbilities.some((e) => toID(e) === toID(ability)) ||
+    plan.payoffAbilities.some((e) => toID(e) === toID(ability));
+
+  if (final) {
+    const ability = resolveForm(final, format)?.ability ?? final.ability;
+    if (carries(ability)) return ability;
+    const move = plan.enablerMoves.find((e) => final.moves.some((x) => toID(x) === toID(e)));
+    return move ?? null;
+  }
+
+  const abilityMatch = m.cand.abilities.find(carries);
   if (abilityMatch) return abilityMatch;
-  const moveMatch = plan.enablerMoves.find((e) => m.cand.moveIds.has(toID(e)));
-  return moveMatch ?? 'it fits the shape the plan needs';
+  return plan.enablerMoves.find((e) => m.cand.moveIds.has(toID(e))) ?? null;
 }
 
 function headline(before: TeamShape, after: TeamShape, picks: DraftPick[]): string {

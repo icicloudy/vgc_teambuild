@@ -8,6 +8,8 @@ import { legalMegas } from '../data/roster';
 import { inChampionsPool } from './../data/items';
 import { MAX_SP_PER_STAT, MAX_SP_TOTAL, resolveForm, statAt } from './stats';
 import { computeSpeed, defaultScenario } from './speed';
+import { calcDamage, defaultCombatant, defaultField, maxHPOf } from './calc';
+import { minSPToKO } from './optimizer';
 import { emptySet } from './showdown';
 import type { Plan, RoleKey } from './plans';
 
@@ -42,6 +44,14 @@ export interface SetContext {
   spice: number;
   /** Whether this slot may take a Mega Stone. */
   allowMega: boolean;
+  /**
+   * Run the expensive spread solves (real calculations against real threats).
+   * The drafter leaves this off while it is comparing eighteen candidates and
+   * turns it on for the one it keeps.
+   */
+  tuned?: boolean;
+  /** Varies tie-breaks between draws so the same Pokémon is not always identical. */
+  seed?: number;
 }
 
 export interface GeneratedSet {
@@ -76,8 +86,8 @@ const SUPPORT_VALUE: Record<string, number> = {
   willowisp: 28, taunt: 26, encore: 26, disable: 14,
   spore: 48, sleeppowder: 22, lovelykiss: 18, yawn: 16,
   reflect: 24, lightscreen: 24, auroraveil: 36,
-  recover: 26, roost: 26, softboiled: 26, synthesis: 22, moonlight: 22, morningsun: 22,
-  slackoff: 26, strengthsap: 34, junglehealing: 28, lifedew: 24,
+  recover: 16, roost: 16, softboiled: 16, synthesis: 14, moonlight: 14, morningsun: 14,
+  slackoff: 16, strengthsap: 30, junglehealing: 24, lifedew: 22,
   swordsdance: 22, nastyplot: 22, dragondance: 26, calmmind: 20, bulkup: 16,
   irondefense: 12, agility: 14, tidyup: 20, victorydance: 26,
   sunnyday: 20, raindance: 20, snowscape: 16, sandstorm: 12, trick: 18, knockoff: 0,
@@ -176,24 +186,62 @@ function roleIsNeeded(key: RoleKey, ctx: SetContext, stats: StatsTable): boolean
     // Screens suit teams that cannot take a hit, and plans that want a long game.
     case 'screens':
       return (ctx.plan.roleWeights.screens ?? 0) > 1 || teamIsFrail(ctx);
-    // Recovery is a property of the Pokémon, not a hole in the team: it belongs on
-    // something bulky enough to be worth healing.
+    /*
+     * Recovery is a property of the *plan*, not of the Pokémon or of the team's
+     * checklist. A team that hits hard never wants a turn spent healing — the
+     * turn is the resource, and giving Roost to a Mega Scizor because "nothing
+     * else brings recovery" is exactly the mistake. It takes a plan built to play
+     * long games, and a Pokémon bulky enough that healing outpaces the damage.
+     */
     case 'recovery':
-      return stats.hp + stats.def + stats.spd >= 300;
+      return (ctx.plan.roleWeights.recovery ?? 0) > 1 &&
+        stats.hp + stats.def + stats.spd >= 300;
     // Descriptive, not roles you go shopping for.
     default:
       return false;
   }
 }
 
-/** Would this team rather be behind screens? */
+/**
+ * Which side of the team is thin, measured rather than assumed.
+ *
+ * Screens are not one role, they are two: Reflect answers a team whose physical
+ * bulk cannot take a hit, Light Screen a team whose special bulk cannot. Deciding
+ * "the team needs screens" and then picking whichever one came first in the
+ * movepool is how Light Screen ends up on a team that was never going to lose to
+ * special attacks. Returned as a pair of 0–1 needs, weighted by how much of the
+ * metagame attacks from each side.
+ */
+function defensiveNeed(ctx: SetContext): { physical: number; special: number } {
+  if (!ctx.team.length) return { physical: 0.5, special: 0.5 };
+  let physical = 0;
+  let special = 0;
+  let counted = 0;
+  for (const member of ctx.team) {
+    const f = resolveForm(member, ctx.format);
+    if (!f) continue;
+    counted++;
+    // Effective bulk, not raw stats: 100/100 is far more than twice 50/50.
+    physical += f.baseStats.hp * f.baseStats.def;
+    special += f.baseStats.hp * f.baseStats.spd;
+  }
+  if (!counted) return { physical: 0.5, special: 0.5 };
+  physical /= counted;
+  special /= counted;
+
+  // A comfortable team sits around 9000 on this scale (100 HP, 90 defence).
+  const shortfall = (bulk: number) => Math.max(0, Math.min(1, (9500 - bulk) / 5000));
+  const physShare = threatPhysicalShare(ctx);
+  return {
+    physical: shortfall(physical) * (0.5 + physShare),
+    special: shortfall(special) * (0.5 + (1 - physShare)),
+  };
+}
+
+/** Would this team rather be behind screens at all? */
 function teamIsFrail(ctx: SetContext): boolean {
-  if (!ctx.team.length) return false;
-  const bulks = ctx.team.map((m) => {
-    const f = resolveForm(m, ctx.format);
-    return f ? f.baseStats.hp + f.baseStats.def + f.baseStats.spd : 0;
-  });
-  return bulks.reduce((a, b) => a + b, 0) / bulks.length < 270;
+  const need = defensiveNeed(ctx);
+  return Math.max(need.physical, need.special) >= 0.45;
 }
 
 /**
@@ -381,7 +429,7 @@ export function buildSet(species: string, ctx: SetContext, base?: PokemonSet): G
 
   /* ---- Stat Points -------------------------------------------------- */
   if (!keepSP) {
-    const spread = allocateSP(set, { bias, archetype, ctx });
+    const spread = allocateSP(set, { bias, archetype, ctx, tuned: ctx.tuned ?? false });
     set.sp = spread.sp;
     notes.push(...spread.notes);
   }
@@ -634,6 +682,34 @@ const WEATHER_BALL_TYPE: Record<string, string> = {
   Sand: 'Rock', Snow: 'Ice',
 };
 
+/**
+ * The type a move actually lands as, once the ability *and* the weather have had
+ * their say. Everything that asks "what type is this move" has to go through here:
+ * when Weather Ball was only weather-adjusted inside the scorer, the same-type
+ * check still saw Normal and happily put Muddy Water next to it on a rain setter.
+ */
+export function firedTypeOf(move: Move, ability: string, weather?: string): string {
+  if (move.id === 'weatherball' && weather) {
+    return WEATHER_BALL_TYPE[weather] ?? move.type;
+  }
+  return effectiveMoveType(move, ability).type;
+}
+
+/**
+ * Accuracy, after the weather. Hurricane and Thunder never miss in rain and
+ * Blizzard never misses in snow, which is most of the reason to run them — a
+ * rain setter carrying Hurricane is carrying a 110-power move that always hits.
+ */
+export function accuracyOf(move: Move, weather?: string): number {
+  const perfect: Record<string, string[]> = {
+    Rain: ['hurricane', 'thunder'],
+    'Heavy Rain': ['hurricane', 'thunder'],
+    Snow: ['blizzard'],
+  };
+  if (weather && (perfect[weather] ?? []).includes(move.id)) return 1;
+  return move.accuracy === true ? 1 : move.accuracy / 100;
+}
+
 /** The type a move actually lands as, once the Pokémon's ability has had its say. */
 export function effectiveMoveType(move: Move, ability: string): { type: string; boosted: boolean } {
   const rule = TYPE_CHANGING_ABILITY[toID(ability)];
@@ -667,12 +743,10 @@ export function moveIsJustified(
   opts: { types: string[]; ability: string; gaps: Set<TypeName>; weather?: string },
 ): boolean {
   if (move.category === 'Status') return true;
-  const { type: firedType, boosted } = effectiveMoveType(move, opts.ability);
-  const weatherType = move.id === 'weatherball' && opts.weather
-    ? WEATHER_BALL_TYPE[opts.weather]
-    : undefined;
-  const fired = weatherType ?? firedType;
-  if (opts.types.includes(fired) || boosted || weatherType) return true;
+  const { boosted } = effectiveMoveType(move, opts.ability);
+  const fired = firedTypeOf(move, opts.ability, opts.weather);
+  const weatherTyped = move.id === 'weatherball' && !!opts.weather;
+  if (opts.types.includes(fired) || boosted || weatherTyped) return true;
   if ((EFFECTIVE_POWER[move.id] ?? move.basePower) >= OVERWHELMING_POWER) return true;
   if ((MOVE_RIDER[move.id] ?? 0) >= 14) return true;
   // A damaging move that is on the set for its effect — Fake Out, Icy Wind,
@@ -696,14 +770,10 @@ function attackScore(
   const { types, ability, bias, stats, ctx, gaps } = opts;
   const power = EFFECTIVE_POWER[move.id] ?? move.basePower;
   // Accuracy hurts more than linearly: the game a 70% move loses is the whole game.
-  const accuracy = move.accuracy === true ? 1 : Math.pow(Math.max(0.5, move.accuracy / 100), 1.5);
+  const accuracy = Math.pow(Math.max(0.5, accuracyOf(move, ctx.plan.weather)), 1.5);
   const effective = effectiveMoveType(move, ability);
-  let firedType = effective.type;
-  let boosted = effective.boosted;
-  if (move.id === 'weatherball' && ctx.plan.weather) {
-    firedType = WEATHER_BALL_TYPE[ctx.plan.weather] ?? firedType;
-    boosted = true;
-  }
+  const firedType = firedTypeOf(move, ability, ctx.plan.weather);
+  const boosted = effective.boosted || (move.id === 'weatherball' && !!ctx.plan.weather);
 
   let score = power * accuracy;
   if (types.includes(firedType)) score *= 1.5;
@@ -732,7 +802,14 @@ function attackScore(
     : move.category === 'Physical' ? stats.atk : stats.spa;
   score *= 0.55 + attackStat / 220;
   if (move.id === 'foulplay' && stats.atk >= 105) score *= 0.5;
-  if ((move.category === 'Physical') !== (bias === 'physical')) score *= 0.72;
+  /*
+   * A move on the wrong side of the split fires off a stat this set will not be
+   * buying points for, and the Nature is working against it as well. Adamant
+   * Salamence's Hurricane is a 110-power move being thrown by an uninvested,
+   * nature-reduced Special Attack — on paper it is the best thing in the pool, in
+   * practice it is the weakest move on the set.
+   */
+  if ((move.category === 'Physical') !== (bias === 'physical')) score *= 0.55;
 
   score *= 0.6 + 0.4 * typeReach(firedType, ctx);
   const rider = MOVE_RIDER[move.id] ?? 0;
@@ -842,6 +919,7 @@ function pickMoves(
    */
   const teamRoles = teamRoleCount(ctx.team, ctx.format);
   const planNeedsCarrier = !planIsUp(ctx.team, ctx.plan, ctx.format);
+  const need = defensiveNeed(ctx);
   // Roles this set has already taken. Without this a Pokémon happily runs both
   // Parting Shot and U-turn, or Thunder Wave and Icy Wind: two answers to a
   // question it only had once.
@@ -878,6 +956,23 @@ function pickMoves(
     // Weather that the team already gets for free from an ability is not worth a
     // move slot on anyone.
     if (WEATHER_MOVE_ABILITY[p.move.id] && teamHasEnablerAbility(ctx)) value *= 0.2;
+
+    // Reflect and Light Screen answer different problems. Weight each by the side
+    // the team is actually thin on, so the screen that goes on is the one the team
+    // was missing rather than the one that came first alphabetically.
+    if (p.move.id === 'reflect') value *= 0.5 + need.physical * 1.6;
+    if (p.move.id === 'lightscreen') value *= 0.5 + need.special * 1.6;
+    if (p.move.id === 'auroraveil') value *= 0.5 + Math.max(need.physical, need.special) * 1.6;
+
+    /*
+     * A nudge, sized by the spice dial, so that drawing the same Pokémon twice does
+     * not always produce the same four moves. Deterministic per draft — rerolling
+     * changes the seed, redrawing the same seed does not.
+     */
+    if (ctx.seed !== undefined && ctx.spice > 0) {
+      const noise = jitter(ctx.seed + p.move.id.length * 31 + p.move.basePower);
+      value *= 1 + (noise - 0.5) * ctx.spice * 0.9;
+    }
     return value * SUPPORT_SCALE;
   };
 
@@ -892,11 +987,34 @@ function pickMoves(
     // that sets the same weather.
     .filter((p) => !weatherMoveIsRedundant(p.move, ability));
 
-  const candidates = usable.map((p) => {
+  /*
+   * A set spends its points on one attacking stat, and the Nature usually cuts the
+   * other one. So on a Pokémon that is clearly one-sided, a move from the other
+   * half of the split is not a coverage option, it is a move fired from a stat
+   * nobody bought: Gyarados does not want Hurricane, whatever the type chart says.
+   * A genuinely mixed stat line keeps both halves. The rule stands down if it would
+   * leave too little to build with.
+   */
+  const offValue = bias === 'physical' ? stats.atk : stats.spa;
+  const otherValue = bias === 'physical' ? stats.spa : stats.atk;
+  const onSide = usable.filter((p) => p.move.category === 'Status' ||
+    (p.move.category === 'Physical') === (bias === 'physical'));
+  const sided = offValue >= otherValue * 1.2 &&
+    onSide.filter((p) => p.move.category !== 'Status').length >= 2
+    ? onSide
+    : usable;
+
+  const candidates = sided.map((p) => {
     const support = p.support > 0 ? supportValue(p) : 0;
+    // Attacks get the same spice-sized nudge the support moves get, so the fourth
+    // slot on a Pokémon whose top five options are close together is not always
+    // resolved the same way.
+    const noise = ctx.seed !== undefined && ctx.spice > 0
+      ? 1 + (jitter(ctx.seed + p.move.id.length * 17 + p.move.basePower * 3) - 0.5) * ctx.spice * 0.9
+      : 1;
     const damage = p.move.category === 'Status'
       ? 0
-      : attackScore(p, { types, ability, bias, stats, ctx, gaps });
+      : attackScore(p, { types, ability, bias, stats, ctx, gaps }) * noise;
     return {
       entry: p,
       support,
@@ -907,7 +1025,7 @@ function pickMoves(
         moveIsJustified(p.move, { types, ability, gaps, weather: ctx.plan.weather }),
       firedType: p.move.category === 'Status'
         ? ''
-        : effectiveMoveType(p.move, ability).type,
+        : firedTypeOf(p.move, ability, ctx.plan.weather),
     };
   });
 
@@ -918,7 +1036,7 @@ function pickMoves(
   });
   for (const m of chosen) {
     const mv = getMove(m);
-    if (mv && mv.category !== 'Status') usedTypes.add(effectiveMoveType(mv, ability).type);
+    if (mv && mv.category !== 'Status') usedTypes.add(firedTypeOf(mv, ability, ctx.plan.weather));
   }
 
   let attacksTaken = usedTypes.size;
@@ -927,9 +1045,8 @@ function pickMoves(
     (c.justified ? 1 : 0.45);
 
   while (chosen.length < 4) {
-    const ranked = candidates
+    const eligible = candidates
       .filter((c) => !taken.has(c.entry.move.id))
-      .filter((c) => !(c.isAttack && usedTypes.has(c.firedType)))
       .filter((c) => !conflictsWith(c.entry.move))
       // Doubling up on a role the team already has needs a real reason.
       .filter((c) => {
@@ -939,7 +1056,20 @@ function pickMoves(
         // has needs a real reason.
         if (rolesTaken.has(key) && key !== 'protect') return false;
         return !((teamRoles[key] ?? 0) >= 1 && c.support < 75);
-      })
+      });
+
+    /*
+     * Two moves that go out as the same type are one move and one wasted slot,
+     * whichever budget they were taken from — Fake Out and Extreme Speed are as
+     * much a doubled Normal attack as Muddy Water and a rain Weather Ball are a
+     * doubled Water one. The comparison is on the type the move actually fires as,
+     * and the greedy order means the more valuable of the pair is the one that
+     * survives. If the rule empties the list it is dropped rather than allowed to
+     * leave a slot blank.
+     */
+    const fresh = eligible.filter((c) => c.entry.move.category === 'Status' ||
+      !usedTypes.has(c.firedType));
+    const ranked = (fresh.length ? fresh : eligible)
       .map((c) => ({ c, value: valueOf(c) }))
       .sort((a, b) => b.value - a.value);
     if (!ranked.length) break;
@@ -952,9 +1082,10 @@ function pickMoves(
     const winner = (pickFrom[0] ?? ranked[0]).c;
 
     if (!add(winner.entry.move.name)) break;
+    // Any damaging move claims its type, even one taken for its rider.
+    if (winner.entry.move.category !== 'Status') usedTypes.add(winner.firedType);
     if (winner.isAttack) {
       attacksTaken++;
-      usedTypes.add(winner.firedType);
       const attackRole = ROLE_OF_MOVE[winner.entry.move.id];
       if (attackRole) rolesTaken.add(attackRole);
       const covered = [...gaps].filter((g) => effectiveness(winner.firedType, [g]) >= 2);
@@ -968,7 +1099,12 @@ function pickMoves(
       if (key) rolesTaken.add(key);
       // Only worth saying when the role was a need. "Nothing else brings screens"
       // is a fact, not a justification.
-      if (key && (teamRoles[key] ?? 0) === 0 && key !== 'protect' &&
+      if (key === 'screens') {
+        const side = winner.entry.move.id === 'reflect' ? 'physical' : 'special';
+        notes.push(
+          `${winner.entry.move.name} — this team's ${side} bulk is the thin side, so that is the screen it wants.`,
+        );
+      } else if (key && (teamRoles[key] ?? 0) === 0 && key !== 'protect' &&
           roleIsNeeded(key, ctx, stats)) {
         notes.push(`${winner.entry.move.name} — nothing else on the team brings ${ROLE_LABEL[key]}.`);
       }
@@ -1034,6 +1170,14 @@ const WEATHER_MOVE_ABILITY: Record<string, string[]> = {
 
 function weatherMoveIsRedundant(move: Move, ability: string): boolean {
   return (WEATHER_MOVE_ABILITY[move.id] ?? []).includes(toID(ability));
+}
+
+/** Small deterministic hash, so "vary the answer" never means "be random". */
+function jitter(seed: number): number {
+  let t = (seed + 0x6d2b79f5) >>> 0;
+  t = Math.imul(t ^ (t >>> 15), 1 | t);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
 }
 
 /** Does anything on the team set the plan up with an ability rather than a move? */
@@ -1127,6 +1271,9 @@ function pickItem(
   },
 ): { name: string; note?: string } | null {
   const { bias, archetype, ctx, stats } = opts;
+  const holder = resolveForm(set, ctx.format);
+  const types = holder?.types ?? [];
+  const ability = holder?.ability ?? set.ability;
   const used = heldItems(ctx.team);
   const moves = set.moves.filter(Boolean).map((m) => getMove(m)).filter(Boolean) as Move[];
   const statusMoves = moves.filter((m) => m.category === 'Status');
@@ -1167,7 +1314,10 @@ function pickItem(
     {
       name: 'Safety Goggles',
       score: archetype === 'support' ? 48 : 20,
-      note: 'Safety Goggles — support Pokémon are the ones Spore and Rage Powder are aimed at.',
+      // Only claim the support reasoning on a Pokémon the reasoning is about.
+      note: archetype === 'support'
+        ? 'Safety Goggles — support Pokémon are the ones Spore and Rage Powder are aimed at.'
+        : undefined,
     },
     { name: 'Wide Lens', score: lowAccuracy ? 44 : -1 },
     {
@@ -1192,21 +1342,59 @@ function pickItem(
     const item = getItem(name);
     if (!item || used.has(toID(name))) return false;
     if (ctx.format.bannedItems.some((b) => toID(b) === toID(name))) return false;
+    // An item that does nothing for this particular Pokémon is not an option.
+    if (itemIsRedundant(name, types, ability)) return false;
     // Champions ships a curated item pool. Handing out an Assault Vest the game
     // does not have is the fastest way to make a whole spread unusable.
     return ctx.format.itemPool !== 'champions' || inChampionsPool(item);
   };
 
+  // Two Pokémon with the same shape should not always reach for the same item.
+  // The nudge is sized by the spice dial and never resurrects a disqualified
+  // candidate — a score of -1 means "not for this Pokémon" and stays there.
+  const shaken = (c: { name: string; score: number }) =>
+    ctx.seed !== undefined && ctx.spice > 0 && c.score > 0
+      ? c.score * (1 + (jitter(ctx.seed + c.name.length * 13 + c.score) - 0.5) * ctx.spice * 0.5)
+      : c.score;
+
   const pick = candidates
     .filter((c) => c.score > 0)
     .filter((c) => available(c.name))
-    .sort((a, b) => b.score - a.score)[0];
+    .sort((a, b) => shaken(b) - shaken(a))[0];
   if (pick) return pick;
 
   // Item Clause can eat every candidate on a six-Pokémon team. An empty item slot
   // is strictly worse than a mediocre item, so fall back rather than leave one.
   const fallback = ITEM_FALLBACKS.find(available);
   return fallback ? { name: fallback } : null;
+}
+
+/**
+ * Items that do nothing for particular holders.
+ *
+ * Safety Goggles on a Grass type is the clearest case: Grass types are already
+ * immune to powder and spore moves, so the Goggles are protecting against the
+ * weather chip they were never going to take. Each entry answers "would this item
+ * be doing anything at all here?"
+ */
+const ITEM_REDUNDANT: Record<string, (types: string[], ability: string) => boolean> = {
+  // Grass types ignore powder; Overcoat does the same job for free.
+  safetygoggles: (types, ability) => types.includes('Grass') || ability === 'overcoat',
+  // These abilities already refuse stat drops.
+  clearamulet: (_t, ability) => ['clearbody', 'whitesmoke', 'fullmetalbody'].includes(ability),
+  // Shield Dust already blanks the secondary effects Covert Cloak is bought for.
+  covertcloak: (_t, ability) => ability === 'shielddust',
+  // Magic Guard and Rock Head do not care about the recoil Life Orb inflicts,
+  // but everyone else does; the reverse case — a holder that ignores the drawback
+  // entirely — is the only one worth flagging.
+  lightclay: () => false,
+  // Levitate is already immune to Ground.
+  airballoon: (_t, ability) => ability === 'levitate',
+};
+
+function itemIsRedundant(itemName: string, types: string[], ability: string): boolean {
+  const rule = ITEM_REDUNDANT[toID(itemName)];
+  return !!rule && rule(types, toID(ability));
 }
 
 const ITEM_FALLBACKS = [
@@ -1232,11 +1420,34 @@ interface SpreadResult {
  * everything left into bulk — allocated one point at a time to whichever of
  * HP/Def/SpD buys the most effective HP, weighted by how physical the metagame is.
  */
+/**
+ * Spend the 66 points.
+ *
+ * Speed is decided first, because it is the only stat where the answer is a hard
+ * threshold rather than a curve: either you move before the thing you needed to
+ * move before or you do not. After that the question splits. An attacker's points
+ * are worth most where they secure a specific knockout — so the drafter solves for
+ * the cheapest investment that takes a real target down, against a real spread,
+ * through an Intimidate drop if the format is full of them. A support Pokémon's
+ * points are worth most where they let it live through a specific attack, so the
+ * drafter solves that instead. Whatever is left over goes into general bulk one
+ * point at a time.
+ *
+ * The exception is Focus Sash: it already guarantees surviving a hit from full, so
+ * bulk investment on top of it buys nothing and everything goes into Speed and
+ * power.
+ */
 function allocateSP(
   set: PokemonSet,
-  opts: { bias: 'physical' | 'special'; archetype: Archetype; ctx: SetContext },
+  opts: {
+    bias: 'physical' | 'special';
+    archetype: Archetype;
+    ctx: SetContext;
+    /** Run the expensive solves. Only worth it for a set you are keeping. */
+    tuned: boolean;
+  },
 ): SpreadResult {
-  const { bias, archetype, ctx } = opts;
+  const { bias, archetype, ctx, tuned } = opts;
   const form = resolveForm(set, ctx.format);
   const notes: string[] = [];
   const sp = emptySP();
@@ -1247,28 +1458,128 @@ function allocateSP(
     const mv = getMove(m);
     return !!mv && mv.category !== 'Status';
   });
+  const item = toID(set.item);
 
-  /* ---- 1. Offensive stat -------------------------------------------- */
-  if (hasAttack) {
-    sp[offStat] = archetype === 'attacker' ? 32 : archetype === 'support' ? 20 : 8;
+  /* ---- Focus Sash rewrites the whole question ----------------------- */
+  if (item === 'focussash' && hasAttack) {
+    sp[offStat] = MAX_SP_PER_STAT;
+    if (ctx.plan.tempo === 'slow') {
+      // Under Trick Room the Sash still buys the extra turn, but Speed is the one
+      // stat that would waste it: the points go into bulk instead.
+      sp.hp = MAX_SP_PER_STAT;
+      sp[bias === 'physical' ? 'spd' : 'def'] = MAX_SP_TOTAL - MAX_SP_PER_STAT * 2;
+      notes.push(
+        'Focus Sash guarantees the turn, so the points go into power — and into bulk ' +
+        'rather than Speed, which Trick Room would only waste.',
+      );
+    } else {
+      sp.spe = MAX_SP_PER_STAT;
+      sp.hp = MAX_SP_TOTAL - MAX_SP_PER_STAT * 2;
+      notes.push(
+        'Focus Sash already guarantees it survives one hit from full, so the points go ' +
+        'into Speed and power rather than bulk it does not need.',
+      );
+    }
+    return { sp, notes };
   }
 
-  /* ---- 2. Speed ------------------------------------------------------ */
-  let budget = MAX_SP_TOTAL - sp[offStat];
+  /* ---- 1. Speed ------------------------------------------------------ */
+  let budget = MAX_SP_TOTAL;
+  /*
+   * The archetype says what the Pokémon is for; the finished set says what it is
+   * going to be doing. A "support" piece that came out of the move pass holding
+   * three attacks is going to spend its turns attacking, and giving it a token
+   * eight points because of its label is how a four-attack Gengar ended up with
+   * five points of Special Attack.
+   */
+  const offensiveMoves = set.moves.filter((m) => {
+    const mv = getMove(m);
+    return !!mv && mv.category !== 'Status' &&
+      (mv.category === 'Physical') === (bias === 'physical');
+  }).length;
+  const attacker = archetype === 'attacker' || offensiveMoves >= 3;
   if (ctx.plan.tempo === 'slow') {
     notes.push('No Speed investment: under Trick Room, slower is better.');
   } else {
-    const priced = priceSpeed(set, set.nature, Math.min(MAX_SP_PER_STAT, budget), archetype, ctx);
+    const reserve = attacker ? MAX_SP_PER_STAT : 20;
+    const priced = priceSpeed(
+      set, set.nature, Math.min(MAX_SP_PER_STAT, budget - reserve), archetype, ctx,
+    );
     if (priced.points > 0) {
       sp.spe = priced.points;
       budget -= priced.points;
       notes.push(
-        `${priced.points} Speed points — the cheapest number that outruns ${priced.label} at ${priced.target}.`,
+        item === 'choicescarf'
+          ? `${priced.points} Speed points — with the Choice Scarf's 1.5x on top, that clears ${priced.label} at ${priced.target}.`
+          : `${priced.points} Speed points — the cheapest number that outruns ${priced.label} at ${priced.target}.`,
       );
     }
   }
 
-  /* ---- 3. Bulk, one point at a time --------------------------------- */
+  /* ---- 2. The stat that does the job -------------------------------- */
+  const cap = Math.min(MAX_SP_PER_STAT, budget);
+  let survivalSolved = false;
+  if (hasAttack && attacker) {
+    const solved = tuned ? solveForKO(set, offStat, budget, ctx) : null;
+    /*
+     * Cutting the attacking stat below maximum is only right if the points bought
+     * something else. The KO solver sees OHKO thresholds and nothing beyond them,
+     * so a number it calls "enough" is still less damage everywhere the threshold
+     * does not apply — worth taking only when what it frees up is itself a number,
+     * a specific attack this Pokémon now lives through. If there is no such attack,
+     * the saving buys generic bulk on a Pokémon whose job is damage, and the honest
+     * answer is to max out.
+     */
+    /*
+     * …and there is a floor under the cut. A threshold that comes out at five
+     * points is not a spread, it is the softest thing on the ladder falling over;
+     * half the budget is the least a Pokémon whose job is damage keeps hold of.
+     */
+    const floor = Math.ceil(cap / 2);
+    if (solved && solved.points > floor && solved.points < cap) {
+      const spare = budget - solved.points;
+      const survive = tuned ? solveForSurvival(set, { ...sp, [offStat]: solved.points }, spare, ctx) : null;
+      if (survive) {
+        sp[offStat] = solved.points;
+        sp.hp = survive.hp;
+        sp[survive.stat] = (sp[survive.stat] ?? 0) + survive.points;
+        budget -= solved.points + survive.hp + survive.points;
+        notes.push(solved.note, survive.note);
+        survivalSolved = true;
+      } else {
+        sp[offStat] = cap;
+        budget -= cap;
+      }
+    } else if (solved && solved.points <= floor) {
+      sp[offStat] = cap;
+      budget -= cap;
+      notes.push(
+        `Maximum ${STAT_LABEL[offStat]}: ${solved.points} points already clears the ` +
+        'thresholds worth naming, and everything past them is damage this set wants anyway.',
+      );
+    } else {
+      sp[offStat] = solved ? solved.points : cap;
+      if (solved) notes.push(solved.note);
+      budget -= sp[offStat];
+    }
+  } else if (hasAttack) {
+    // Not an attacker, but the attacks it does have still have to hurt.
+    const token = offensiveMoves >= 2 ? 20 : archetype === 'support' ? 14 : 8;
+    sp[offStat] = Math.min(token, budget);
+    budget -= sp[offStat];
+  }
+
+  if (!attacker && tuned && !survivalSolved) {
+    const survive = solveForSurvival(set, sp, budget, ctx);
+    if (survive) {
+      sp.hp = survive.hp;
+      sp[survive.stat] = (sp[survive.stat] ?? 0) + survive.points;
+      budget -= survive.hp + survive.points;
+      notes.push(survive.note);
+    }
+  }
+
+  /* ---- 3. Whatever is left, into bulk one point at a time ------------ */
   const physShare = threatPhysicalShare(ctx);
   const level = set.level;
   const nature = set.nature;
@@ -1298,7 +1609,8 @@ function allocateSP(
 
   // Anything the bulk loop could not place (every stat capped) goes back into offence.
   let spent = STATS.reduce((n, s) => n + sp[s], 0);
-  for (const stat of [offStat, 'spe'] as StatID[]) {
+  const spillover: StatID[] = ctx.plan.tempo === 'slow' ? [offStat] : [offStat, 'spe'];
+  for (const stat of spillover) {
     while (spent < MAX_SP_TOTAL && sp[stat] < MAX_SP_PER_STAT && hasAttack) {
       sp[stat]++;
       spent++;
@@ -1307,6 +1619,149 @@ function allocateSP(
 
   return { sp, notes };
 }
+
+/**
+ * How much of the metagame drops your Attack on entry. Above a third of the field
+ * and a physical attacker should be doing its arithmetic at -1, because that is
+ * the number it will actually be attacking with.
+ */
+function intimidateShare(ctx: SetContext): number {
+  const total = ctx.threats.reduce((a, t) => a + t.usage, 0) || 1;
+  const intimidating = ctx.threats.reduce(
+    (a, t) => a + (toID(t.set.ability) === 'intimidate' ? t.usage : 0),
+    0,
+  );
+  return intimidating / total;
+}
+
+/**
+ * The attacking investment that buys the most targets.
+ *
+ * A builder does not ask "what is the least Attack that kills something" — the
+ * answer to that is zero, because something on the ladder always dies. The
+ * question is how far down the usage table one number reaches: every common
+ * threat gets priced, and the set buys the most expensive one still inside the
+ * budget. Anything the points cannot reach is left alone, and if nothing in the
+ * top of the table dies at all the stat is simply maxed.
+ *
+ * Physical attackers do the arithmetic at -1 when a third of the format carries
+ * Intimidate, because that is the attack they will really be swinging.
+ */
+function solveForKO(
+  set: PokemonSet,
+  stat: StatID,
+  budget: number,
+  ctx: SetContext,
+): { points: number; note: string } | null {
+  const cap = Math.min(MAX_SP_PER_STAT, budget);
+  if (cap <= 0) return null;
+
+  const damaging = set.moves
+    .map((m) => getMove(m))
+    .filter((m): m is Move => !!m && m.category !== 'Status' &&
+      (m.category === 'Physical') === (stat === 'atk'));
+  if (!damaging.length) return null;
+
+  const intimidated = stat === 'atk' && intimidateShare(ctx) >= 0.33;
+  const attackerState = intimidated
+    ? { ...defaultCombatant(), boosts: { atk: -1 } }
+    : defaultCombatant();
+  const field = defaultField(ctx.format.gameType);
+
+  // Price every common threat: the cheapest of our moves that takes it out.
+  const targets = [...ctx.threats].sort((a, b) => b.usage - a.usage).slice(0, 8);
+  let best: { points: number; label: string; move: string } | null = null;
+  let reachable = false;
+  for (const target of targets) {
+    let cheapest: { points: number; move: string } | null = null;
+    for (const move of damaging) {
+      const solved = minSPToKO(set, target.set, move.name, ctx.format, field, {
+        guaranteed: true,
+        attackerState,
+        hits: 1,
+      });
+      if (!solved) continue;
+      reachable = true;
+      const points = Math.max(solved.atkSP, 0);
+      if (points > cap) continue;
+      if (!cheapest || points < cheapest.points) cheapest = { points, move: move.name };
+    }
+    if (!cheapest) continue;
+    if (!best || cheapest.points > best.points) {
+      best = { ...cheapest, label: target.set.nickname || target.set.species };
+    }
+  }
+
+  // Nothing near the top of the table falls over inside the budget: the points are
+  // not buying a specific number, so they buy raw damage instead.
+  if (!best || (best.points === 0 && reachable && cap > 0)) {
+    return {
+      points: cap,
+      note: `Maximum ${STAT_LABEL[stat]}: nothing at the top of the usage table dies to a specific number here, so the points buy damage outright.`,
+    };
+  }
+
+  return {
+    points: best.points,
+    note: `${best.points} ${STAT_LABEL[stat]} points — the least that guarantees ${best.move} KOes ${best.label}${intimidated ? ', measured at -1 through Intimidate' : ''}, and everything softer with it.`,
+  };
+}
+
+/**
+ * The cheapest bulk that lives through the attack most likely to be aimed at it.
+ *
+ * Scans HP first because it helps against both sides, then tops up the defence the
+ * incoming move actually checks.
+ */
+function solveForSurvival(
+  set: PokemonSet,
+  current: StatsTable,
+  budget: number,
+  ctx: SetContext,
+): { hp: number; stat: StatID; points: number; note: string } | null {
+  if (budget <= 2 || !ctx.threats.length) return null;
+  const field = defaultField(ctx.format.gameType);
+
+  // The most common threat whose best move against us is worth planning around.
+  const ranked = [...ctx.threats].sort((a, b) => b.usage - a.usage).slice(0, 4);
+  for (const threat of ranked) {
+    let worst: { move: Move; damage: number } | null = null;
+    for (const name of threat.set.moves) {
+      const move = getMove(name);
+      if (!move || move.category === 'Status') continue;
+      const res = calcDamage(threat.set, { ...set, sp: current }, move.name, ctx.format, field);
+      if (res && (!worst || res.max > worst.damage)) worst = { move, damage: res.max };
+    }
+    if (!worst) continue;
+
+    const maxHP = maxHPOf({ ...set, sp: current }, ctx.format);
+    // Already survives comfortably: nothing to solve for.
+    if (worst.damage < maxHP * 0.75) continue;
+
+    const defStat: StatID = worst.move.category === 'Physical' ? 'def' : 'spd';
+    for (let spent = 2; spent <= Math.min(budget, MAX_SP_PER_STAT * 2); spent += 2) {
+      const hp = Math.min(MAX_SP_PER_STAT, Math.ceil(spent / 2));
+      const defence = Math.min(MAX_SP_PER_STAT, spent - hp);
+      const trial = { ...current, hp, [defStat]: (current[defStat] ?? 0) + defence };
+      const res = calcDamage(threat.set, { ...set, sp: trial }, worst.move.name, ctx.format, field);
+      if (!res) break;
+      if (res.max < maxHPOf({ ...set, sp: trial }, ctx.format)) {
+        const label = threat.set.nickname || threat.set.species;
+        return {
+          hp,
+          stat: defStat,
+          points: defence,
+          note: `${hp} HP / ${defence} ${STAT_LABEL[defStat]} — the least that survives ${label}'s ${worst.move.name} from full.`,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+const STAT_LABEL: Record<StatID, string> = {
+  hp: 'HP', atk: 'Attack', def: 'Defence', spa: 'Sp. Atk', spd: 'Sp. Def', spe: 'Speed',
+};
 
 /**
  * What Speed is worth here, and what it costs.

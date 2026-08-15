@@ -105,20 +105,13 @@ export function moveCatalogue(species: string): MoveEntry[] {
     });
   }
 
+  // Alphabetical inside each section. The section already carries the frequency
+  // signal, and within a section a name is easier to find than a ranking is to
+  // read — the usage figure is still printed next to each one.
   return out.sort((a, b) => {
     const ca = CATEGORY_ORDER.indexOf(a.category);
     const cb = CATEGORY_ORDER.indexOf(b.category);
     if (ca !== cb) return ca - cb;
-    if (a.category === 'common') {
-      // Measured usage first, then the curated order, then base power.
-      if (a.usage !== b.usage) return b.usage - a.usage;
-      const ra = STAPLE_RANK.get(a.move.id) ?? 999;
-      const rb = STAPLE_RANK.get(b.move.id) ?? 999;
-      if (ra !== rb) return ra - rb;
-    }
-    if (a.category === 'physical' || a.category === 'special') {
-      if (a.move.basePower !== b.move.basePower) return b.move.basePower - a.move.basePower;
-    }
     return a.move.name.localeCompare(b.move.name);
   });
 }

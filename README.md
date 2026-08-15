@@ -53,9 +53,10 @@ inside their panels rather than stretching the page.
 **Build** — six slots with a species search that takes what a Pokémon *does*, not just its
 name: type `intimidate`, `fake out` or `steel`, and stack them (`fake out intimidate`) to
 intersect. Unevolved Pokémon sort last and are labelled, so they never crowd out real options.
-Move and item pickers that are grouped and ordered rather than alphabetical — the moves the
-format actually runs come first, with the share of the metagame carrying each one, measured
-from ladder data. An item list trimmed to what a Champions battle can actually
+Move and item pickers that are grouped rather than flat — the moves the format actually
+runs sit in their own section at the top, with the share of the metagame carrying each one
+measured from ladder data, and each section is alphabetical inside itself so a name you are
+looking for is where you expect it. An item list trimmed to what a Champions battle can actually
 use and grouped with the staples first, Stat Point sliders with live totals and a marker
 where the 66-point budget runs out, and Mega Evolution handled the way the game handles it: hold the
 stone, and the forme, typing, ability and stats all switch over everywhere in the app. Showdown
@@ -221,17 +222,46 @@ Set generation follows the same rule — every choice has to be derivable:
   which moves read a stat other than the obvious one, and a conflict whenever one moves a
   stat the wrong way for the other. Two moves doing the same job — Parting Shot and U-turn,
   Thunder Wave and Icy Wind — are refused for the same reason.
-- **Stat Points** — the attacking stat, then Speed *priced against the threat list*: every
-  point count from 0 to the budget is costed as "extra share of the metagame outrun" minus
-  "bulk those points would have bought", so a slow Pokémon chasing a tier it cannot reach
-  correctly gets nothing. Everything left goes into bulk one point at a time, to whichever
-  of HP/Def/SpD buys the most effective HP against a metagame weighted by how physical it
-  actually is.
+- **Two attacks of the same type are one attack.** The comparison is on the type a move
+  actually goes out as, so Weather Ball in rain is a Water move and Pelipper cannot pair it
+  with Muddy Water — Hurricane, which is what the set wanted, gets the slot instead. Weather
+  changes accuracy in the same place, which is why Hurricane and Thunder stop being
+  70%-accurate gambles under rain and start being the reason to be in rain.
+- **Screens are measured, not assumed.** How thin the team is on each side is a number —
+  mean HP×Def and HP×SpD against a baseline, weighted by how physical the format actually
+  is — and Reflect and Light Screen are valued against their own side of it. So the screen
+  that goes on is the one covering the side the team is short of, and the note says which
+  side that was. Recovery is gated the other way: it only goes on something bulky enough
+  for healing to be the plan, because an offensive team that spends a turn healing has
+  already lost the turn it was trying to win.
+- **Stat Points** — Speed first, *priced against the threat list*: every point count from 0
+  to the budget is costed as "extra share of the metagame outrun" minus "bulk those points
+  would have bought", so a slow Pokémon chasing a tier it cannot reach correctly gets
+  nothing, and a Choice Scarf is speed control that gets priced with its 1.5x included.
+  Then the points buy a specific outcome. An attacker's attacking stat is solved against
+  the top of the usage table: every common threat is priced with real damage calculations
+  and the set buys the most expensive KO still inside its budget, so the note reads "the
+  least that guarantees Draco Meteor KOes Basculegion" rather than "max Attack because it
+  is an attacker" — and physical attackers do that arithmetic at -1 when a third of the
+  format carries Intimidate, because that is the attack they will really be swinging.
+  Everything else solves the mirror question, the least HP and defence that lives through
+  the strongest attack the common threats aim at it. Focus Sash is the documented exception:
+  it already guarantees the turn, so the points go to maximum Speed and maximum power and
+  buy no bulk at all. Whatever is left over goes into bulk one point at a time, to whichever
+  of HP/Def/SpD buys the most effective HP.
 - **Nature** — decided *with* the Speed investment, not before it, since +Speed costs 10%
   of the attacking stat and has to buy meaningfully more of the field to be worth it.
 - **Item** — scored from the finished set (Mental Herb on the Trick Room setter, Light Clay
   behind screens, Focus Sash on the fast and frail), drawn only from the Champions item pool,
-  respecting Item Clause, with a fallback chain so a slot is never left empty.
+  respecting Item Clause, with a fallback chain so a slot is never left empty. An item that
+  would do nothing for its holder is not offered at all: Safety Goggles on a Grass type or
+  an Overcoat holder, Clear Amulet with Clear Body, Covert Cloak with Shield Dust, an Air
+  Balloon on Levitate.
+- **The same request twice is not the same team.** Move scores, support values and item
+  scores all take a nudge sized by the spice dial and seeded by the draw, so a Pokémon whose
+  top five options are close together does not resolve them the same way every time. It is
+  a nudge, not a coin flip: at spice 0 the drafter is fully deterministic, and redrawing the
+  same seed gives the same answer.
 - **Ability** — chosen for the base forme, always: a set that Mega Evolves stores the
   pre-Mega ability, because Gardevoir cannot "have" Pixilate.
 

@@ -18,7 +18,7 @@ import { minSPToSurvive, minSPToKO, minSPToOutspeed, survivalGrid } from '../src
 import { validateTeam } from '../src/engine/legality.ts';
 import { rosterConfidence } from '../src/data/roster.ts';
 import { itemCatalogue, inChampionsPool } from '../src/data/items.ts';
-import { moveIsJustified, movesConflict } from '../src/engine/setgen.ts';
+import { firedTypeOf, moveIsJustified, movesConflict } from '../src/engine/setgen.ts';
 import { NFE_EXCEPTIONS } from '../src/data/champions.ts';
 import { draftTeam, prepareThreats, teamShape } from '../src/engine/autobuild.ts';
 import { buildSet } from '../src/engine/setgen.ts';
@@ -457,6 +457,76 @@ console.log('\n=== Drafter ===');
         if (dupe) fail(`${plan}/${member.species} carries two ${dupe} moves`);
       }
 
+      /*
+       * Two attacks that fire as the same type are one attack and one wasted slot.
+       * The comparison is on the type the move actually goes out as, so Weather
+       * Ball in rain counts as the Water move it is rather than the Normal move it
+       * says it is — that pairing (Muddy Water + Weather Ball on a Pelipper that
+       * could have run Hurricane) is the case this rule exists for.
+       */
+      for (const member of result.team) {
+        const form = resolveForm(member, format);
+        if (!form) continue;
+        const fired = member.moves.filter(Boolean)
+          .map((m) => getMove(m))
+          .filter((m): m is NonNullable<typeof m> => !!m && m.category !== 'Status')
+          .map((m) => firedTypeOf(m, form.ability, result.plan.weather));
+        const doubled = fired.find((t, i) => fired.indexOf(t) !== i);
+        if (doubled) fail(`${plan}/${member.species} runs two ${doubled} attacks`);
+      }
+
+      /*
+       * A one-sided attacker does not carry a move from the other half of the
+       * split: the points and the Nature both went the other way, so it would be
+       * fired from a stat nobody bought. Gyarados with Hurricane is the case.
+       */
+      for (const member of result.team) {
+        const form = resolveForm(member, format);
+        if (!form) continue;
+        const { atk, spa } = form.baseStats;
+        if (Math.max(atk, spa) < Math.min(atk, spa) * 1.2) continue;
+        const wrongSide = (atk > spa ? 'Special' : 'Physical') as 'Special' | 'Physical';
+        const stray = member.moves.filter(Boolean).map((m) => getMove(m))
+          .find((m) => m?.category === wrongSide && (member.sp[atk > spa ? 'spa' : 'atk'] ?? 0) < 8);
+        if (stray) {
+          fail(`${plan}/${member.species} runs ${stray.name} off an uninvested ${wrongSide} stat`);
+        }
+      }
+
+      // An item has to do something for the Pokémon holding it.
+      for (const member of result.team) {
+        const form = resolveForm(member, format);
+        if (!form) continue;
+        if (toID(member.item) === 'safetygoggles' && form.types.includes('Grass')) {
+          fail(`${plan}/${member.species} is a Grass type holding Safety Goggles`);
+        }
+        if (toID(member.item) === 'clearamulet' &&
+            ['clearbody', 'whitesmoke', 'fullmetalbody'].includes(toID(form.ability))) {
+          fail(`${plan}/${member.species} holds Clear Amulet with ${form.ability}`);
+        }
+        if (toID(member.item) === 'airballoon' && toID(form.ability) === 'levitate') {
+          fail(`${plan}/${member.species} holds an Air Balloon with Levitate`);
+        }
+      }
+
+      /*
+       * A Pokémon whose set is mostly attacks has to have bought the stat those
+       * attacks fire from. The failure this catches is a solver that stops at the
+       * first target it can knock over: the softest thing on the ladder dies to an
+       * uninvested attack, so "the cheapest KO" was answering zero.
+       */
+      for (const member of result.team) {
+        const attacks = member.moves.filter(Boolean)
+          .map((m) => getMove(m))
+          .filter((m): m is NonNullable<typeof m> => !!m && m.category !== 'Status');
+        if (attacks.length < 3) continue;
+        const physical = attacks.filter((m) => m.category === 'Physical').length;
+        const stat = physical > attacks.length / 2 ? 'atk' : 'spa';
+        if ((member.sp[stat] ?? 0) < 8) {
+          fail(`${plan}/${member.species} runs ${attacks.length} attacks on ${member.sp[stat] ?? 0} ${stat} points`);
+        }
+      }
+
       // A Trick Room team must not invest in Speed, and must actually set the room.
       if (plan === 'trickroom') {
         if (result.team.some((m) => (m.sp.spe ?? 0) > 0)) fail('Trick Room plan bought Speed points');
@@ -604,6 +674,57 @@ console.log('\n=== Judgement ===');
     }
   }
   ok('no set carries a weather move its own ability already provides');
+
+  /*
+   * Stat Points have to be an argument about targets, not a default spread. A
+   * solved attacker should be able to name what its number buys, and a solved
+   * support piece what its bulk lives through.
+   */
+  const solved = buildSet('Garchomp', { ...ctxFor('balance'), tuned: true, seed: 3 });
+  const spNote = solved.notes.find((n) => /Attack points|Maximum Attack/.test(n));
+  if (!spNote) fail('a solved attacker gave no reason for its Attack investment');
+  else ok(`Stat Points are argued against real targets (${spNote.slice(0, 72)}…)`);
+
+  /*
+   * A support piece buys bulk against a specific attack — unless it is already so
+   * bulky that nothing at the top of the table threatens it, which is a real
+   * answer and not a missing one. So the claim is that the solver reaches a
+   * survival number when there is one to reach.
+   */
+  const supports = ['Grimmsnarl', 'Whimsicott', 'Sableye', 'Amoonguss'];
+  const survival = supports
+    .map((name) => buildSet(name, { ...ctxFor('bulky'), tuned: true, seed: 3 }))
+    .flatMap((s) => s.notes)
+    .find((n) => /the least that survives/.test(n));
+  if (!survival) fail('no support piece bought its bulk against a named attack');
+  else ok(`support bulk is bought against an attack it has to live through (${survival.slice(0, 64)}…)`);
+
+  /*
+   * The screen a team wants is the one covering the side it is thin on, so the
+   * two are not interchangeable and the reasoning has to say which is which.
+   */
+  const screenSet = buildSet('Grimmsnarl', { ...ctxFor('bulky'), tuned: true, seed: 3 });
+  const screenNote = screenSet.notes.find((n) => /thin side/.test(n));
+  if (screenNote) {
+    const side = /physical bulk/.test(screenNote) ? 'Reflect' : 'Light Screen';
+    if (!screenSet.set.moves.includes(side)) {
+      fail(`the screen note names the ${side} side but the set runs the other screen`);
+    } else ok(`the screen matches the side the team is thin on (${side})`);
+  } else ok('screens went on for a reason other than a standing role');
+
+  /*
+   * The same request twice should not produce the same six sets. Spice is the dial
+   * that widens the draw, and it has to reach the sets themselves — not only which
+   * Pokémon get picked.
+   */
+  const signature = (seed: number) => draftTeam({
+    team: [], format, threats: BUILT_IN_THREATS, field: defaultField('Doubles'),
+    override: null, options: { plan: 'balance', spice: 0.6, banned: [], seed },
+  }).team.map((m) => `${m.species}|${m.item}|${m.moves.join(',')}`).join('\n');
+  const drawA = signature(21);
+  const drawB = signature(22);
+  if (drawA === drawB) fail('two drafts at spice 0.6 produced identical sets');
+  else ok('drawing twice does not produce the same sets');
 }
 
 console.log('\n=== Champions availability ===');
