@@ -1,0 +1,624 @@
+{
+  "$comment": [
+    "The Regulation M-B preview pool: what you can expect to be looking at across the table.",
+    "",
+    "This file exists because team preview is a decision under uncertainty. You see six",
+    "species and nothing else — no items, no moves, no spreads. So a species here is not one",
+    "set, it is a distribution over sets, and the shares are what make the app able to say",
+    "'this plan holds unless their Garchomp is the Scarf one (13%)'.",
+    "",
+    "Provenance, per field:",
+    "  usage, moves, item shares  — published Champions Reg M-B ranked data (Pikalytics,",
+    "                               Season 3, retrieved August 2026). The percentages in each",
+    "                               set's note are quoted from it.",
+    "  spreads                    — NOT published anywhere. Every sp block below is a reading",
+    "                               of what the set is for. They are the first thing to edit.",
+    "  variant move lists         — where a variant changes moves (a Choice set cannot hold",
+    "                               Protect), the swap is inferred and the note says so.",
+    "",
+    "measured:false marks a species whose set shape was never published; it gets one set and",
+    "the app labels it as a guess wherever it shows up.",
+    "",
+    "Every move is checked against the real learnset at build time, so a mistake here fails",
+    "the build rather than shipping as a fake set."
+  ],
+  "format": {
+    "id": "champs-mb-doubles",
+    "name": "Champions VGC — Regulation Set M-B",
+    "level": 50,
+    "bring": 6,
+    "pick": 4,
+    "spBudget": 66,
+    "spPerStat": 32
+  },
+  "species": [
+    {
+      "species": "Garchomp",
+      "usage": 100,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Life Orb",
+          "share": 52,
+          "item": "Life Orb",
+          "ability": "Rough Skin",
+          "nature": "Jolly",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Dragon Claw", "Rock Slide", "Earthquake", "Protect"],
+          "note": "The #1 Pokémon of the format. Dragon Claw 89%, Rock Slide 82%, Earthquake 81%, Protect 70%."
+        },
+        {
+          "label": "Sitrus Berry",
+          "share": 14,
+          "item": "Sitrus Berry",
+          "ability": "Rough Skin",
+          "nature": "Jolly",
+          "sp": { "hp": 32, "atk": 20, "spe": 14 },
+          "moves": ["Dragon Claw", "Rock Slide", "Earthquake", "Protect"],
+          "note": "Same four moves, points moved into bulk. Spread inferred."
+        },
+        {
+          "label": "Choice Scarf",
+          "share": 13,
+          "item": "Choice Scarf",
+          "ability": "Rough Skin",
+          "nature": "Jolly",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Dragon Claw", "Rock Slide", "Earthquake", "Stomping Tantrum"],
+          "note": "Item share measured at 13%; the fourth move is inferred, because a Choice set cannot run Protect."
+        }
+      ]
+    },
+    {
+      "species": "Basculegion",
+      "usage": 95,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Choice Scarf",
+          "share": 45,
+          "item": "Choice Scarf",
+          "ability": "Adaptability",
+          "nature": "Adamant",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Last Respects", "Wave Crash", "Aqua Jet", "Flip Turn"],
+          "note": "Last Respects 100%, Aqua Jet 95%, Wave Crash 82%. Choice Scarf 45% — the source notes the Scarf set drops Protect; the replacement is inferred."
+        },
+        {
+          "label": "Mystic Water",
+          "share": 20,
+          "item": "Mystic Water",
+          "ability": "Adaptability",
+          "nature": "Adamant",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Last Respects", "Wave Crash", "Aqua Jet", "Protect"],
+          "note": "Protect 54%. Mystic Water 20%."
+        },
+        {
+          "label": "Focus Sash",
+          "share": 18,
+          "item": "Focus Sash",
+          "ability": "Adaptability",
+          "nature": "Adamant",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Last Respects", "Wave Crash", "Aqua Jet", "Protect"],
+          "note": "Focus Sash 18%. Last Respects scales with how many of its own team have fainted, so the Sash set is the late-game one."
+        }
+      ]
+    },
+    {
+      "species": "Whimsicott",
+      "usage": 92,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Focus Sash",
+          "share": 76,
+          "item": "Focus Sash",
+          "ability": "Prankster",
+          "nature": "Timid",
+          "sp": { "hp": 16, "spa": 18, "spe": 32 },
+          "moves": ["Tailwind", "Moonblast", "Encore", "Protect"],
+          "note": "Tailwind 99%, Moonblast 92%, Encore 74%, Protect 57%. Focus Sash 76%. Prankster 99%."
+        },
+        {
+          "label": "Fairy Feather",
+          "share": 11,
+          "item": "Fairy Feather",
+          "ability": "Prankster",
+          "nature": "Timid",
+          "sp": { "hp": 16, "spa": 32, "spe": 18 },
+          "moves": ["Tailwind", "Moonblast", "Encore", "Protect"],
+          "note": "Fairy Feather 11% — the set that actually wants to click Moonblast. Spread inferred."
+        }
+      ]
+    },
+    {
+      "species": "Kingambit",
+      "usage": 90,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Chople Berry",
+          "share": 43,
+          "item": "Chople Berry",
+          "ability": "Defiant",
+          "nature": "Adamant",
+          "sp": { "hp": 32, "atk": 32, "spe": 2 },
+          "moves": ["Sucker Punch", "Kowtow Cleave", "Iron Head", "Protect"],
+          "note": "Sucker Punch 99%, Kowtow Cleave 98%, Iron Head 74%, Protect 69%. Chople Berry 43% — it is there for the Fighting move that would otherwise end it."
+        },
+        {
+          "label": "Black Glasses",
+          "share": 32,
+          "item": "Black Glasses",
+          "ability": "Defiant",
+          "nature": "Adamant",
+          "sp": { "hp": 32, "atk": 32, "spe": 2 },
+          "moves": ["Sucker Punch", "Kowtow Cleave", "Iron Head", "Protect"],
+          "note": "Black Glasses 32%. Same four moves, more damage, no answer to Fighting."
+        },
+        {
+          "label": "Focus Sash",
+          "share": 13,
+          "item": "Focus Sash",
+          "ability": "Defiant",
+          "nature": "Adamant",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Sucker Punch", "Kowtow Cleave", "Iron Head", "Protect"],
+          "note": "Focus Sash 13%. Spread inferred: the Sash set is the one that wants the Speed."
+        }
+      ]
+    },
+    {
+      "species": "Sinistcha",
+      "usage": 88,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Sitrus Berry",
+          "share": 35,
+          "item": "Sitrus Berry",
+          "ability": "Hospitality",
+          "nature": "Relaxed",
+          "sp": { "hp": 32, "def": 22, "spa": 12 },
+          "moves": ["Rage Powder", "Matcha Gotcha", "Life Dew", "Trick Room"],
+          "note": "Rage Powder 99%, Matcha Gotcha 99%, Life Dew 59%, Trick Room 59%. Sitrus 35%."
+        },
+        {
+          "label": "Kasib Berry",
+          "share": 30,
+          "item": "Kasib Berry",
+          "ability": "Hospitality",
+          "nature": "Relaxed",
+          "sp": { "hp": 32, "def": 22, "spa": 12 },
+          "moves": ["Rage Powder", "Matcha Gotcha", "Life Dew", "Trick Room"],
+          "note": "Kasib Berry 30% — a Ghost resist berry on a Ghost type, which tells you what it is afraid of."
+        },
+        {
+          "label": "Colbur Berry",
+          "share": 14,
+          "item": "Colbur Berry",
+          "ability": "Hospitality",
+          "nature": "Relaxed",
+          "sp": { "hp": 32, "def": 22, "spa": 12 },
+          "moves": ["Rage Powder", "Matcha Gotcha", "Life Dew", "Trick Room"],
+          "note": "Colbur Berry 14%, for the Dark move — read: for Kingambit."
+        }
+      ]
+    },
+    {
+      "species": "Incineroar",
+      "usage": 86,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Sitrus Berry",
+          "share": 60,
+          "item": "Sitrus Berry",
+          "ability": "Intimidate",
+          "nature": "Careful",
+          "sp": { "hp": 32, "atk": 2, "spd": 32 },
+          "moves": ["Fake Out", "Parting Shot", "Flare Blitz", "Throat Chop"],
+          "note": "Fake Out 100%, Parting Shot 97%, Flare Blitz 93%, Throat Chop 54%. Sitrus 60%. Intimidate 99.8%."
+        },
+        {
+          "label": "Chople Berry",
+          "share": 15,
+          "item": "Chople Berry",
+          "ability": "Intimidate",
+          "nature": "Careful",
+          "sp": { "hp": 32, "atk": 2, "spd": 32 },
+          "moves": ["Fake Out", "Parting Shot", "Flare Blitz", "Throat Chop"],
+          "note": "Chople Berry 15%."
+        },
+        {
+          "label": "Passho Berry",
+          "share": 12,
+          "item": "Passho Berry",
+          "ability": "Intimidate",
+          "nature": "Careful",
+          "sp": { "hp": 32, "atk": 2, "spd": 32 },
+          "moves": ["Fake Out", "Parting Shot", "Flare Blitz", "Throat Chop"],
+          "note": "Passho Berry 12% — it expects to be clicked on by a Water move and to live."
+        }
+      ]
+    },
+    {
+      "species": "Charizard",
+      "usage": 85,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Charizardite Y",
+          "share": 95,
+          "item": "Charizardite Y",
+          "ability": "Blaze",
+          "nature": "Modest",
+          "sp": { "hp": 2, "spa": 32, "spe": 32 },
+          "moves": ["Heat Wave", "Solar Beam", "Weather Ball", "Protect"],
+          "note": "Protect 98%, Heat Wave 95%, Solar Beam 92%, Weather Ball 84%. Charizardite Y 95%. Half of the format's most common core: Mega Charizard Y + Garchomp, 20.6% of teams."
+        },
+        {
+          "label": "Charizardite X",
+          "share": 4,
+          "item": "Charizardite X",
+          "ability": "Blaze",
+          "nature": "Adamant",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Flare Blitz", "Dragon Claw", "Dual Wingbeat", "Protect"],
+          "note": "Charizardite X 4%. Move list inferred — the X forme is physical and Tough Claws, so nothing on the Y set applies."
+        }
+      ]
+    },
+    {
+      "species": "Staraptor",
+      "usage": 80,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Staraptite",
+          "share": 95,
+          "item": "Staraptite",
+          "ability": "Intimidate",
+          "nature": "Adamant",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Close Combat", "Brave Bird", "Roost", "Protect"],
+          "note": "Close Combat 98%, Protect 90%, Brave Bird 81%, Roost 72%. Staraptite 95%. The Mega turns Intimidate into Contrary, so Close Combat raises its defences instead of dropping them."
+        }
+      ]
+    },
+    {
+      "species": "Floette-Eternal",
+      "usage": 76,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Floettite",
+          "share": 99,
+          "item": "Floettite",
+          "ability": "Flower Veil",
+          "nature": "Modest",
+          "sp": { "hp": 16, "spa": 32, "spe": 18 },
+          "moves": ["Dazzling Gleam", "Moonblast", "Light of Ruin", "Protect"],
+          "note": "Protect 100%, Dazzling Gleam 97%, Moonblast 79%, Light of Ruin 58%. Floettite 99%. Highest win rate in the format at 54.2%."
+        }
+      ]
+    },
+    {
+      "species": "Sylveon",
+      "usage": 72,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Fairy Feather",
+          "share": 90,
+          "item": "Fairy Feather",
+          "ability": "Pixilate",
+          "nature": "Modest",
+          "sp": { "hp": 32, "spa": 32, "spd": 2 },
+          "moves": ["Hyper Voice", "Quick Attack", "Hyper Beam", "Detect"],
+          "note": "Hyper Voice 100%, Quick Attack 82%, Hyper Beam 71%, Detect 61%. Fairy Feather 90%. Pixilate turns all three Normal moves Fairy and adds 20%."
+        }
+      ]
+    },
+    {
+      "species": "Sneasler",
+      "usage": 68,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Unburden",
+          "share": 56,
+          "item": "White Herb",
+          "ability": "Unburden",
+          "nature": "Jolly",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Close Combat", "Fake Out", "Dire Claw", "Protect"],
+          "note": "Close Combat 99%, Fake Out 94%, Dire Claw 94%. White Herb 71% — it undoes the Close Combat drops and, by being consumed, doubles Speed through Unburden. Unburden 56%."
+        },
+        {
+          "label": "Poison Touch",
+          "share": 43,
+          "item": "White Herb",
+          "ability": "Poison Touch",
+          "nature": "Jolly",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Close Combat", "Fake Out", "Dire Claw", "Protect"],
+          "note": "Poison Touch 43% — same set, no Speed doubling. Which ability it is changes whether it outruns you after one Close Combat."
+        }
+      ]
+    },
+    {
+      "species": "Farigiraf",
+      "usage": 64,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Sitrus Berry",
+          "share": 62,
+          "item": "Sitrus Berry",
+          "ability": "Armor Tail",
+          "nature": "Relaxed",
+          "sp": { "hp": 32, "def": 20, "spa": 14 },
+          "moves": ["Trick Room", "Psychic", "Helping Hand", "Protect"],
+          "note": "Trick Room 96%, Psychic 61%, Helping Hand 49%, Protect 39%. Sitrus 62%. Armor Tail 99.9% blocks Fake Out and every other priority move aimed at its side."
+        },
+        {
+          "label": "Colbur Berry",
+          "share": 25,
+          "item": "Colbur Berry",
+          "ability": "Armor Tail",
+          "nature": "Relaxed",
+          "sp": { "hp": 32, "def": 20, "spa": 14 },
+          "moves": ["Trick Room", "Psychic", "Helping Hand", "Protect"],
+          "note": "Colbur Berry 25%."
+        }
+      ]
+    },
+    {
+      "species": "Pelipper",
+      "usage": 60,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Focus Sash",
+          "share": 45,
+          "item": "Focus Sash",
+          "ability": "Drizzle",
+          "nature": "Modest",
+          "sp": { "hp": 20, "spa": 30, "spe": 16 },
+          "moves": ["Hurricane", "Weather Ball", "Tailwind", "Wide Guard"],
+          "note": "Hurricane 99%, Weather Ball 88%, Tailwind 87%, Wide Guard 51%. Focus Sash 45%. Drizzle 100% — its rain makes Hurricane stop missing and Weather Ball a doubled Water move."
+        },
+        {
+          "label": "Sitrus Berry",
+          "share": 31,
+          "item": "Sitrus Berry",
+          "ability": "Drizzle",
+          "nature": "Modest",
+          "sp": { "hp": 32, "def": 12, "spa": 22 },
+          "moves": ["Hurricane", "Weather Ball", "Tailwind", "Wide Guard"],
+          "note": "Sitrus 31%. Spread inferred: the Sitrus set is the one that wants to be alive on turn three."
+        },
+        {
+          "label": "Damp Rock",
+          "share": 13,
+          "item": "Damp Rock",
+          "ability": "Drizzle",
+          "nature": "Modest",
+          "sp": { "hp": 32, "def": 12, "spa": 22 },
+          "moves": ["Hurricane", "Weather Ball", "Tailwind", "Wide Guard"],
+          "note": "Damp Rock 13% — eight turns of rain instead of five. If you see this one, the rain is not going to run out."
+        }
+      ]
+    },
+    {
+      "species": "Raichu",
+      "usage": 56,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Raichunite Y",
+          "share": 61,
+          "item": "Raichunite Y",
+          "ability": "Lightning Rod",
+          "nature": "Timid",
+          "sp": { "hp": 2, "spa": 32, "spe": 32 },
+          "moves": ["Fake Out", "Zap Cannon", "Focus Blast", "Protect"],
+          "note": "Fake Out 72%, Protect 66%, Zap Cannon 60%, Focus Blast 56%. Raichunite Y 61%. The Mega has No Guard, which is why a 50%-accurate Zap Cannon is on the set at all: it never misses and it always paralyses."
+        },
+        {
+          "label": "Raichunite X",
+          "share": 18,
+          "item": "Raichunite X",
+          "ability": "Lightning Rod",
+          "nature": "Jolly",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Fake Out", "Volt Tackle", "Play Rough", "Protect"],
+          "note": "Raichunite X 18%. Move list inferred — the X forme is physical."
+        },
+        {
+          "label": "Focus Sash",
+          "share": 15,
+          "item": "Focus Sash",
+          "ability": "Lightning Rod",
+          "nature": "Timid",
+          "sp": { "hp": 2, "spa": 32, "spe": 32 },
+          "moves": ["Fake Out", "Thunderbolt", "Focus Blast", "Protect"],
+          "note": "Focus Sash 15% — no Mega, so no No Guard, so Zap Cannon becomes a coin flip and Thunderbolt replaces it. Inferred."
+        }
+      ]
+    },
+    {
+      "species": "Archaludon",
+      "usage": 54,
+      "measured": true,
+      "sets": [
+        {
+          "label": "Leftovers",
+          "share": 89,
+          "item": "Leftovers",
+          "ability": "Stamina",
+          "nature": "Modest",
+          "sp": { "hp": 32, "def": 4, "spa": 30 },
+          "moves": ["Electro Shot", "Flash Cannon", "Dragon Pulse", "Protect"],
+          "note": "Electro Shot 97%, Flash Cannon 95%, Protect 94%, Dragon Pulse 74%. Leftovers 89%. Stamina 93%. Electro Shot charges in a single turn under rain, which is why this one travels with Pelipper."
+        }
+      ]
+    },
+    {
+      "species": "Maushold",
+      "usage": 52,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Wide Lens",
+          "share": 100,
+          "item": "Wide Lens",
+          "ability": "Friend Guard",
+          "nature": "Jolly",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Population Bomb", "Follow Me", "Super Fang", "Protect"],
+          "note": "Top-20 usage, but no published move percentages. The whole set is a reading."
+        }
+      ]
+    },
+    {
+      "species": "Metagross",
+      "usage": 50,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Metagrossite",
+          "share": 100,
+          "item": "Metagrossite",
+          "ability": "Clear Body",
+          "nature": "Jolly",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Iron Head", "Zen Headbutt", "Ice Punch", "Protect"],
+          "note": "Top-20 usage; the Mega gains Tough Claws. Set shape is a reading, not measured."
+        }
+      ]
+    },
+    {
+      "species": "Swampert",
+      "usage": 48,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Swampertite",
+          "share": 100,
+          "item": "Swampertite",
+          "ability": "Torrent",
+          "nature": "Adamant",
+          "sp": { "hp": 20, "atk": 32, "spe": 14 },
+          "moves": ["Waterfall", "Earthquake", "Ice Punch", "Protect"],
+          "note": "Added in Reg M-B; Swift Swim on the Mega makes it the rain pay-off. Set shape is a reading, not measured."
+        }
+      ]
+    },
+    {
+      "species": "Grimmsnarl",
+      "usage": 46,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Light Clay",
+          "share": 100,
+          "item": "Light Clay",
+          "ability": "Prankster",
+          "nature": "Careful",
+          "sp": { "hp": 32, "def": 16, "spd": 18 },
+          "moves": ["Reflect", "Light Screen", "Spirit Break", "Thunder Wave"],
+          "note": "Top-20 usage; Light Clay arrived with the Reg M-B item batch. Set shape is a reading, not measured."
+        }
+      ]
+    },
+    {
+      "species": "Aerodactyl",
+      "usage": 44,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Aerodactylite",
+          "share": 100,
+          "item": "Aerodactylite",
+          "ability": "Rock Head",
+          "nature": "Jolly",
+          "sp": { "hp": 2, "atk": 32, "spe": 32 },
+          "moves": ["Rock Slide", "Dual Wingbeat", "Tailwind", "Protect"],
+          "note": "Top-20 usage. Set shape is a reading, not measured."
+        }
+      ]
+    },
+    {
+      "species": "Milotic",
+      "usage": 40,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Sitrus Berry",
+          "share": 100,
+          "item": "Sitrus Berry",
+          "ability": "Competitive",
+          "nature": "Calm",
+          "sp": { "hp": 32, "def": 12, "spa": 12, "spd": 10 },
+          "moves": ["Scald", "Icy Wind", "Recover", "Protect"],
+          "note": "Appears in Reg M-B ladder data. Set shape is a reading, not measured."
+        }
+      ]
+    },
+    {
+      "species": "Mimikyu",
+      "usage": 38,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Focus Sash",
+          "share": 100,
+          "item": "Focus Sash",
+          "ability": "Disguise",
+          "nature": "Jolly",
+          "sp": { "hp": 12, "atk": 32, "spe": 22 },
+          "moves": ["Play Rough", "Shadow Sneak", "Trick Room", "Protect"],
+          "note": "Appears in Reg M-B ladder data. Disguise means the first hit it takes does nothing, so every damage number against it is a turn late. Set shape is a reading."
+        }
+      ]
+    },
+    {
+      "species": "Scrafty",
+      "usage": 36,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Chople Berry",
+          "share": 100,
+          "item": "Chople Berry",
+          "ability": "Intimidate",
+          "nature": "Careful",
+          "sp": { "hp": 32, "atk": 12, "spd": 22 },
+          "moves": ["Fake Out", "Drain Punch", "Knock Off", "Protect"],
+          "note": "Added in Reg M-B. Set shape is a reading, not measured."
+        }
+      ]
+    },
+    {
+      "species": "Gholdengo",
+      "usage": 34,
+      "measured": false,
+      "sets": [
+        {
+          "label": "Covert Cloak",
+          "share": 100,
+          "item": "Covert Cloak",
+          "ability": "Good as Gold",
+          "nature": "Modest",
+          "sp": { "hp": 24, "spa": 32, "spe": 10 },
+          "moves": ["Make It Rain", "Shadow Ball", "Nasty Plot", "Protect"],
+          "note": "Added in Reg M-B. Good as Gold refuses every status move aimed at it — Spore, Will-O-Wisp, Encore, Parting Shot. Set shape is a reading."
+        }
+      ]
+    }
+  ]
+}

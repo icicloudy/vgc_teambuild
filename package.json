@@ -17,7 +17,13 @@
     "check:artifact": "node scripts/artifact-check.mjs",
     "data": "node scripts/build-dataset.mjs",
     "smoke:features": "node scripts/feature-check.mjs",
-    "smoke:draft": "node scripts/draft-check.mjs"
+    "smoke:draft": "node scripts/draft-check.mjs",
+    "data:ninety": "node scripts/build-ninety-data.mjs",
+    "dev:ninety": "npm run data:ninety && vite --config vite.ninety.config.ts",
+    "build:ninety": "npm run data:ninety && tsc -b && vite build --config vite.ninety.config.ts",
+    "preview:ninety": "vite preview --config vite.ninety.config.ts",
+    "check:ninety": "tsx scripts/ninety-check.ts",
+    "smoke:ninety": "node scripts/ninety-smoke.mjs"
   },
   "dependencies": {
     "@smogon/calc": "^0.11.0",

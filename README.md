@@ -18,6 +18,24 @@ npm run smoke:features # filters, the threshold map, any-Pokémon calcs
 npm run smoke:draft    # the drafter, end to end, in a browser
 ```
 
+## Ninety — the other app in here
+
+`ninety/` is a second, separate app: **team preview, solved.** The teambuilder helps you
+build six; Ninety answers the question that actually decides games, which is which four of
+them to bring against the six across the table, and which two to lead. It treats preview as
+what it is — a simultaneous game under uncertainty — solves the 15 × 15 matrix, prices what
+it cannot see (their items) against published usage, and will deal you the same problem on a
+ninety-second clock and grade your answer.
+
+```bash
+npm run dev:ninety     # http://localhost:5273
+npm run check:ninety   # offline engine checks; pass a seed to print a whole briefing
+npm run smoke:ninety   # drives it in a browser
+```
+
+It shares only the generated dex dataset with the teambuilder — its own root, engine, damage
+formula and build. See [`ninety/README.md`](ninety/README.md).
+
 ## Using it on your phone
 
 The app is a static site with no backend, so anything that can serve a folder works.

@@ -29,3 +29,6 @@ screenshots/
 # Single-file build output (regenerate with npm run build:artifact)
 dist-artifact
 artifact/
+
+# Ninety build output
+dist-ninety
